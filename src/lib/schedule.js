@@ -77,25 +77,63 @@ export function buildPattern(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
   return out;
 }
 
+/**
+ * The pattern plus, for each week, which rotation stint it belongs to.
+ * A stint is one unbroken run of ON weeks. Long-travel travelers flip their
+ * travel profile from one stint to the next, so we need them numbered.
+ */
+export function buildSchedule(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
+  const pattern = buildPattern(person, numWeeks, maxOn);
+  const stintOf = new Array(numWeeks).fill(-1);
+  let stint = -1;
+  let prevOn = false;
+  for (let w = 0; w < numWeeks; w++) {
+    const on = pattern[w] === ON;
+    if (on && !prevOn) stint++;
+    stintOf[w] = on ? stint : -1;
+    prevOn = on;
+  }
+  return { pattern, stintOf };
+}
+
 /** Which day index this local is off in week w, or -1. */
 export function localOffDayIndex(person, w) {
   if (person.employment !== 'Local') return -1;
+  const every = person.localOffEvery ?? 0;
+  if (!every) return -1;
   const day = person.localOffDay;
   if (!day || day === 'None') return -1;
-  const parity = person.localOffParity ? 1 : 0;
-  if (w % 2 !== parity) return -1;
+  const offset = (person.localOffOffset ?? 0) % every;
+  if (w % every !== offset) return -1;
   return DAYS.indexOf(day);
+}
+
+/**
+ * Which day a long-travel traveler loses to flying, or -1.
+ * Profile flips each stint: lose Monday one rotation, Friday the next.
+ */
+export function travelOffDayIndex(person, stintIdx) {
+  if (person.employment === 'Local') return -1;
+  if (!person.longTravel || stintIdx < 0) return -1;
+  const phase = ((person.travelPhase ?? 0) + stintIdx) % 2;
+  return phase === 0 ? 0 : DAYS.length - 1;
+}
+
+/** The single day this person is off in week w for any reason, or -1. */
+export function offDayIndex(person, w, stintOf) {
+  if (person.employment === 'Local') return localOffDayIndex(person, w);
+  return travelOffDayIndex(person, stintOf ? stintOf[w] : -1);
 }
 
 /** grid[w][d] -> boolean present on site. */
 export function presenceGrid(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
-  const pattern = buildPattern(person, numWeeks, maxOn);
+  const { pattern, stintOf } = buildSchedule(person, numWeeks, maxOn);
   const grid = pattern.map((status, w) => {
     if (status !== ON) return DAYS.map(() => false);
-    const offIdx = localOffDayIndex(person, w);
+    const offIdx = offDayIndex(person, w, stintOf);
     return DAYS.map((_, d) => d !== offIdx);
   });
-  return { pattern, grid };
+  return { pattern, stintOf, grid };
 }
 
 export function skillList(person) {

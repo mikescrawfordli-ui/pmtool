@@ -10,25 +10,37 @@ const W_SPREAD = 2;
 /**
  * The knobs the balancer is allowed to turn for one person.
  *
- * Setting a local's day off to "None" is a deliberate decision — usually the
- * only way to hold a target that a biweekly day off would otherwise break — so
- * the balancer leaves it alone instead of handing the day back.
+ * Travelers: which rotation slot they start in, plus — for long-travel people
+ * — which travel profile their first stint uses, since that decides whether
+ * they lose Mondays or Fridays first.
+ *
+ * Locals: which day and which week in their cycle. The *frequency* itself is a
+ * policy decision (as is "Never"), so the balancer keeps whatever you chose and
+ * only moves the day-off around within it.
  */
 export function optionsFor(person, maxOn = DEFAULT_MAX_CONSECUTIVE) {
   if (person.employment === 'Traveler') {
     const opts = [];
-    for (let i = 0; i <= maxOn; i++) opts.push({ rotationStart: i });
+    const phases = person.longTravel ? [0, 1] : [person.travelPhase ?? 0];
+    for (let i = 0; i <= maxOn; i++) {
+      for (const ph of phases) opts.push({ rotationStart: i, travelPhase: ph });
+    }
     return opts;
   }
-  if (!person.localOffDay || person.localOffDay === 'None') {
-    return [{ localOffDay: 'None', localOffParity: person.localOffParity || 0 }];
+
+  const every = person.localOffEvery ?? 0;
+  if (!every) {
+    // No recurring day off — nothing to arrange, and not ours to hand back.
+    return [{ localOffEvery: 0, localOffDay: person.localOffDay || 'Fri', localOffOffset: 0 }];
   }
-  return [
-    { localOffDay: 'Fri', localOffParity: 0 },
-    { localOffDay: 'Fri', localOffParity: 1 },
-    { localOffDay: 'Mon', localOffParity: 0 },
-    { localOffDay: 'Mon', localOffParity: 1 },
-  ];
+
+  const opts = [];
+  for (const day of ['Fri', 'Mon']) {
+    for (let off = 0; off < every; off++) {
+      opts.push({ localOffEvery: every, localOffDay: day, localOffOffset: off });
+    }
+  }
+  return opts;
 }
 
 function withOption(person, opt) {
@@ -209,19 +221,21 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
 /**
  * Can this roster hit its targets at all, no matter how the rotation is
  * arranged? Headcount alone overstates capacity, because on any given day
- * some travelers are on their home week and some locals are on their
- * biweekly day off.
+ * some travelers are on their home week, some locals are on their recurring
+ * day off, and some long-travel people are in the air.
  *
  * The floor is the guaranteed worst-day count under the *best possible*
  * arrangement:
  *   - Travelers spread across (maxOn + 1) rotation slots, so at best
  *     ceil(T / (maxOn+1)) are home simultaneously.
- *   - Locals with a day off spread across 4 slots (Mon/Fri x odd/even week),
- *     so at best ceil(L_off / 4) are out on any one day.
+ *   - Locals on an every-f-weeks day off spread across 2*f slots (Mon/Fri x
+ *     which week), so at best ceil(n / 2f) are out on any one day.
+ *   - Long-travel travelers lose a day each; split evenly between the two
+ *     travel profiles, at best ceil(LT / 2) are out on the worst day.
  *
  * If the floor is below the requirement, no amount of rebalancing fixes it —
- * the roster needs another body, a relaxed target, or a local who keeps their
- * Fridays.
+ * the roster needs another body, a relaxed target, a less frequent day off,
+ * or one fewer long-travel person on that skill.
  */
 export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
   const slots = maxOn + 1;
@@ -231,12 +245,24 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
     const withSkill = people.filter((p) => p.skills && p.skills[s]);
     const locals = withSkill.filter((p) => p.employment === 'Local');
     const travelers = withSkill.filter((p) => p.employment !== 'Local');
-    const localsWithDayOff = locals.filter((p) => p.localOffDay && p.localOffDay !== 'None');
+
+    // Locals out on the worst day, grouped by how often they take a day off.
+    const byFreq = new Map();
+    for (const p of locals) {
+      const f = p.localOffEvery ?? 0;
+      if (!f) continue;
+      byFreq.set(f, (byFreq.get(f) || 0) + 1);
+    }
+    let localsOut = 0;
+    for (const [f, n] of byFreq) localsOut += Math.ceil(n / (2 * f));
 
     const travelersHome = travelers.length === 0 ? 0 : Math.ceil(travelers.length / slots);
-    const localsOut = localsWithDayOff.length === 0 ? 0 : Math.ceil(localsWithDayOff.length / 4);
 
-    const floor = locals.length - localsOut + (travelers.length - travelersHome);
+    const longTravel = travelers.filter((p) => p.longTravel).length;
+    const longTravelOnSite = Math.max(0, longTravel - Math.ceil(longTravel / slots));
+    const travelDaysOut = Math.ceil(longTravelOnSite / 2);
+
+    const floor = locals.length - localsOut + (travelers.length - travelersHome) - travelDaysOut;
     const peak = withSkill.length;
 
     let peakNeed = 0;
@@ -254,18 +280,20 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
     } else if (peakNeed > 0 && floor < peakNeed) {
       status = 'tight';
       const short = peakNeed - floor;
+      const reasons = [];
+      if (travelersHome > 0) reasons.push(`${travelersHome} home on rotation`);
+      if (localsOut > 0) reasons.push(`${localsOut} local on a day off`);
+      if (travelDaysOut > 0) reasons.push(`${travelDaysOut} travelling`);
+
       const fixes = [];
-      if (travelersHome > 0) {
-        fixes.push(`add ${short} more ${s} traveler${short > 1 ? 's' : ''}`);
-      }
-      if (localsOut > 0) {
-        fixes.push(`set a ${s}-qualified local's day off to None`);
-      }
+      if (travelersHome > 0) fixes.push(`add ${short} more ${s} ${short > 1 ? 'people' : 'person'}`);
+      if (localsOut > 0) fixes.push(`stretch a ${s} local's day off to every 3 weeks, or to Never`);
+      if (travelDaysOut > 0) fixes.push(`turn off Long travel for a ${s} traveler`);
       fixes.push(`lower the target to ${floor}`);
+
       advice =
         `Headcount is ${peak}, but on the worst day only ${floor} are guaranteed on site ` +
-        `(${travelersHome} traveler${travelersHome === 1 ? '' : 's'} home, ${localsOut} local${localsOut === 1 ? '' : 's'} on a day off). ` +
-        `To hold ${peakNeed} every day: ${fixes.join(', or ')}.`;
+        `(${reasons.join(', ')}). To hold ${peakNeed} every day: ${fixes.join(', or ')}.`;
     }
 
     out.push({

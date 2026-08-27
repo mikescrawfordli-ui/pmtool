@@ -28,8 +28,35 @@ export const LIFT = [
   { value: '', label: 'None' },
 ];
 
-// Locals may take their biweekly day off on a Monday or a Friday.
-export const LOCAL_OFF_DAYS = ['Mon', 'Fri', 'None'];
+// Locals may take their recurring day off on a Monday or a Friday.
+export const LOCAL_OFF_DAYS = ['Mon', 'Fri'];
+
+// How often a local takes that day off. 0 means they never do.
+export const LOCAL_OFF_FREQUENCIES = [
+  { value: 0, label: 'Never' },
+  { value: 2, label: 'Every 2 weeks' },
+  { value: 3, label: 'Every 3 weeks' },
+];
+
+/**
+ * Travel days for people flying in and out.
+ *
+ * A standard traveler flies in Sunday and out Friday night, so they are on
+ * site all five days. Someone with a long flight can't do that sustainably,
+ * so the "Long travel" option alternates them between two profiles, switching
+ * every rotation:
+ *
+ *   LATE_IN  — fly in Monday, fly out late Friday   -> loses Monday
+ *   EARLY_OUT — fly in Sunday, fly out Thursday night -> loses Friday
+ *
+ * Alternating means the changeover between one rotation and the next gives
+ * them a long block at home (out Thursday night, back the following Monday)
+ * instead of two short weekends.
+ */
+export const TRAVEL_PROFILES = [
+  { value: 0, key: 'LATE_IN', label: 'In Mon / out Fri night', lostDay: 'Mon' },
+  { value: 1, key: 'EARLY_OUT', label: 'In Sun / out Thu night', lostDay: 'Fri' },
+];
 
 export const TIME_OFF_TYPES = ['Vacation', 'Home week', 'Training', 'Medical', 'Other'];
 

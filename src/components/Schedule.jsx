@@ -1,6 +1,6 @@
 import React from 'react';
 import { ON, TIME_OFF, DAYS } from '../lib/constants.js';
-import { buildPattern, fmtWeek, timeOffEntry, localOffDayIndex, overworkedRuns } from '../lib/schedule.js';
+import { buildSchedule, fmtWeek, timeOffEntry, offDayIndex, overworkedRuns } from '../lib/schedule.js';
 
 /** Click a week to pin it as a home week; click again to release it. */
 function toggleWeek(person, w) {
@@ -23,10 +23,10 @@ export default function Schedule({ site, people, program, update, onBalance, bal
   const { numWeeks, startDate, maxConsecutive } = program;
   const weeks = Array.from({ length: numWeeks }, (_, i) => i);
 
-  const rows = people.map((p) => ({
-    person: p,
-    pattern: buildPattern(p, numWeeks, maxConsecutive),
-  }));
+  const rows = people.map((p) => {
+    const { pattern, stintOf } = buildSchedule(p, numWeeks, maxConsecutive);
+    return { person: p, pattern, stintOf };
+  });
 
   const overworked = overworkedRuns(people, numWeeks, maxConsecutive);
   const overworkedIds = new Set(overworked.map((o) => o.personId));
@@ -67,7 +67,7 @@ export default function Schedule({ site, people, program, update, onBalance, bal
             <span className="legend-key"><span className="legend-swatch" style={{ background: 'var(--ok-soft)', borderColor: '#b6dfd0' }} /> On site</span>
             <span className="legend-key"><span className="legend-swatch" style={{ background: 'var(--surface-2)' }} /> Home week (rotation)</span>
             <span className="legend-key"><span className="legend-swatch" style={{ background: 'var(--amber-soft)', borderColor: '#e8cfa4' }} /> Time off (pinned)</span>
-            <span className="legend-key">−Fri = local's biweekly day off</span>
+            <span className="legend-key">−Fri = day off or travel day, so 4 days on site</span>
           </div>
 
           <div className="tablewrap">
@@ -87,7 +87,7 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ person, pattern }) => (
+                {rows.map(({ person, pattern, stintOf }) => (
                   <tr key={person.id}>
                     <td className="sticky-col" style={{ whiteSpace: 'nowrap' }}>
                       {person.name || <span className="muted">Unnamed</span>}
@@ -97,13 +97,13 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                     </td>
                     <td>
                       <span className={`chip ${person.employment === 'Local' ? 'is-local' : 'is-traveler'}`}>
-                        {person.employment === 'Local' ? 'Local' : 'Trav'}
+                        {person.employment === 'Local' ? 'Local' : person.longTravel ? '✈ Trav' : 'Trav'}
                       </span>
                     </td>
                     {weeks.map((w) => {
                       const st = pattern[w];
                       const entry = st === TIME_OFF ? timeOffEntry(person, w) : null;
-                      const offIdx = st === ON ? localOffDayIndex(person, w) : -1;
+                      const offIdx = st === ON ? offDayIndex(person, w, stintOf) : -1;
                       const cls = st === ON ? 'is-on' : st === TIME_OFF ? 'is-time' : 'is-rot';
                       const label = st === ON ? 'ON' : st === TIME_OFF ? 'PTO' : 'HOME';
                       return (
@@ -114,7 +114,13 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                               st === TIME_OFF
                                 ? `${entry?.type || 'Time off'} — click to release`
                                 : st === ON
-                                  ? `On site${offIdx >= 0 ? `, off ${DAYS[offIdx]}` : ''} — click to pin a home week`
+                                  ? `On site${
+                                      offIdx >= 0
+                                        ? person.employment === 'Local'
+                                          ? `, day off ${DAYS[offIdx]}`
+                                          : `, travelling ${DAYS[offIdx]}`
+                                        : ''
+                                    } — click to pin a home week`
                                   : 'Rotation home week — click to pin as time off'
                             }
                             onClick={() => update(person.id, { timeOff: toggleWeek(person, w) })}

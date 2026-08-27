@@ -55,7 +55,9 @@ won't go green — see "Why a gap won't close" below.
 
 **Roster** — every person, with a checkbox per skill: RCx, ECx, MCx, Quality,
 Injection, SCCAF, OFE. Add people, remove them, or move someone to another site
-with the Site dropdown. Book vacation with the Time off button.
+with the Site dropdown. Book vacation with the Time off button. The Day off /
+travel column holds each local's day-off cycle and each traveler's Long travel
+setting.
 
 **Schedule** — the week grid. Click any week to pin it as a home week; click
 again to release it. Auto-balance is here too.
@@ -81,13 +83,44 @@ consecutive weeks worked. Two things fall out of that:
   fresh three-week run instead of an almost-immediate home week, so you don't
   lose their time twice.
 
-Locals work every week and take **one Monday or Friday off every other week**.
-That's why coverage is judged per day, not per week: a local's Friday off is
-exactly the kind of thing that quietly drops you below your RCx minimum.
+### Travel days
 
-Setting a local's day off to **None** is treated as a deliberate decision, and
-auto-balance will not hand the day back. That's the escape hatch when a target
-can't otherwise be held.
+By default a traveler flies in Sunday and out Friday night, so they are on site
+all five days.
+
+Tick **✈ Long travel** on the Roster for anyone whose flight is too long to do
+that every week. They then alternate between two profiles, switching every
+rotation:
+
+| Rotation | Travel | On site |
+|---|---|---|
+| 1st | In Monday, out late Friday | Tue–Fri |
+| 2nd | In Sunday, out Thursday night | Mon–Thu |
+| 3rd | back to In Monday, out late Friday | Tue–Fri |
+
+Each rotation costs one day on site, but the changeover between them gives a
+long block at home — out Thursday night, not back until the following Monday —
+instead of two short weekends. The dropdown next to the checkbox picks which
+profile their **first** rotation uses; it alternates automatically after that,
+and auto-balance will pick the phase that covers best unless you Lock them.
+
+### Locals' days off
+
+Locals work every week and take one Monday or Friday off on a recurring cycle.
+Three controls, all per person:
+
+- **How often** — Every 2 weeks, Every 3 weeks, or Never
+- **Which day** — Monday or Friday
+- **Which week** of the cycle it lands on
+
+Auto-balance staggers the day and the week across your locals so their days off
+don't collide, but it never changes the frequency you picked — including Never.
+That makes Never the escape hatch when a target can't otherwise be held.
+
+All of this is why coverage is judged per day, not per week: travel days and
+locals' days off both land on Mondays and Fridays, which is exactly where a
+minimum quietly breaks. The Dashboard's **Day-of-week detail** card shows the
+focused week day by day so you can see those dips directly.
 
 **Auto-balance** tries every rotation slot for every traveler and every day-off
 slot for every local, over and over, keeping whatever arrangement scores best.
@@ -108,8 +141,9 @@ Tick the skill for someone else, or move someone in from an adjacent site.
 
 **Target can't be held every day** — you have the headcount, but not on the worst
 day. The Bench depth table shows the *guaranteed floor*: what's left after the
-travelers who are home and the locals on their day off. If the floor is 3 and you
-need 4, no arrangement reaches 4.
+travelers who are home, the locals on their day off, and the long-travel people
+in the air. If the floor is 3 and you need 4, no arrangement reaches 4. The
+advice names which of those three is costing you the most.
 
 Two of these showed up in your starting roster:
 
@@ -120,7 +154,8 @@ Two of these showed up in your starting roster:
 - **ADC2 RCx at 4/day.** Five people have RCx, but with one traveler home and one
   local on a Friday, only three are guaranteed. Adding injection to a local *and*
   setting both RCx locals to no day off gets ADC2 to a clean board; so does
-  adding a sixth RCx person.
+  adding a sixth RCx person. Flagging RCx travelers as Long travel costs another
+  body on the worst day, so watch that number if you turn it on there.
 
 ---
 

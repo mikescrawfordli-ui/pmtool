@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts';
-import { SKILLS, SKILL_LABELS } from '../lib/constants.js';
+import { SKILLS, SKILL_LABELS, DAYS } from '../lib/constants.js';
 import { computeCoverage, reqFor, weekMin, weekMax, weekAvg, findGaps, fmtWeek } from '../lib/schedule.js';
 import { capacityCheck } from '../lib/balancer.js';
 
@@ -322,6 +322,68 @@ export default function Dashboard({ site, people, program, onBalance }) {
               Bars below zero are skills you are short on in week {focusWeek + 1}. Tall green bars are
               people you could lend to another site.
             </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <div style={{ flex: 1 }}>
+            <h2 className="card-title">Day-of-week detail</h2>
+            <p className="card-sub">
+              Week {focusWeek + 1}, day by day. Travel days and locals' days off land on Mondays and
+              Fridays, so this is where thin cover shows up first.
+            </p>
+          </div>
+          <select className="select" value={focusWeek} onChange={(e) => setFocusWeek(+e.target.value)}>
+            {weeks.map((w) => (
+              <option key={w} value={w}>Week {w + 1} — {fmtWeek(startDate, w)}</option>
+            ))}
+          </select>
+        </div>
+        <div className="card-body">
+          <div className="tablewrap">
+            <div className="strip" style={{ minWidth: 420 }}>
+              <div className="strip-row" style={{ gridTemplateColumns: `120px repeat(${DAYS.length}, 1fr)` }}>
+                <div />
+                {DAYS.map((d) => (
+                  <div key={d} className="strip-head">{d}</div>
+                ))}
+              </div>
+              {tracked.map((s) => {
+                const req = reqFor(site, focusWeek, s);
+                return (
+                  <div
+                    key={s}
+                    className="strip-row"
+                    style={{ gridTemplateColumns: `120px repeat(${DAYS.length}, 1fr)` }}
+                  >
+                    <div className="strip-label">{s}</div>
+                    {DAYS.map((d, di) => {
+                      const have = cov[focusWeek][di][s];
+                      return (
+                        <div
+                          key={d}
+                          className={`strip-cell is-${cellState(have, req)}`}
+                          title={`${d} of week ${focusWeek + 1}: ${have} on site, target ${req.min}`}
+                        >
+                          {have}
+                        </div>
+                      );
+                    })}
+                  </div>
+                );
+              })}
+              <div
+                className="strip-row"
+                style={{ gridTemplateColumns: `120px repeat(${DAYS.length}, 1fr)`, marginTop: 6 }}
+              >
+                <div className="strip-label" style={{ color: 'var(--muted)' }}>Crew</div>
+                {DAYS.map((d, di) => (
+                  <div key={d} className="strip-cell is-off">{cov[focusWeek][di]._total}</div>
+                ))}
+              </div>
+            </div>
           </div>
         </div>
       </div>

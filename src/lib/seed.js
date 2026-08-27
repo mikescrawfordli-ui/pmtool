@@ -30,8 +30,13 @@ function person(name, role, employment, lift, skills, extra = {}) {
     lift,
     skills,
     rotationStart: 0,
-    localOffDay: employment === 'Local' ? 'Fri' : 'None',
-    localOffParity: 0,
+    // Locals: a day off every other week by default.
+    localOffDay: 'Fri',
+    localOffEvery: employment === 'Local' ? 2 : 0,
+    localOffOffset: 0,
+    // Travelers: standard Sunday-in / Friday-night-out, on site all five days.
+    longTravel: false,
+    travelPhase: 0,
     timeOff: [],
     locked: false,
     notes: '',

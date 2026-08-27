@@ -49,8 +49,21 @@ function migrate(state) {
     p.skills = p.skills || {};
     p.timeOff = p.timeOff || [];
     if (p.rotationStart == null) p.rotationStart = 0;
-    if (p.localOffParity == null) p.localOffParity = 0;
-    if (p.localOffDay == null) p.localOffDay = p.employment === 'Local' ? 'Fri' : 'None';
+
+    // v1 stored a Mon/Fri/None day plus an odd/even parity. v2 splits that into
+    // a frequency (0 = never, 2, 3) and an offset within that cycle.
+    if (p.localOffEvery == null) {
+      const hadNone = !p.localOffDay || p.localOffDay === 'None';
+      p.localOffEvery = p.employment === 'Local' && !hadNone ? 2 : 0;
+      p.localOffOffset = p.localOffParity ? 1 : 0;
+      if (hadNone) p.localOffDay = 'Fri';
+    }
+    if (p.localOffOffset == null) p.localOffOffset = 0;
+    if (p.localOffDay == null || p.localOffDay === 'None') p.localOffDay = 'Fri';
+    delete p.localOffParity;
+
+    if (p.longTravel == null) p.longTravel = false;
+    if (p.travelPhase == null) p.travelPhase = 0;
   }
   return state;
 }

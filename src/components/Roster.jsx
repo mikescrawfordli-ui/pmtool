@@ -1,5 +1,8 @@
 import React, { useState } from 'react';
-import { SKILLS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, TIME_OFF_TYPES } from '../lib/constants.js';
+import {
+  SKILLS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
+  TRAVEL_PROFILES, TIME_OFF_TYPES,
+} from '../lib/constants.js';
 import { fmtWeekLong } from '../lib/schedule.js';
 import { newPerson } from '../lib/seed.js';
 
@@ -128,7 +131,7 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                     {SKILLS.map((s) => (
                       <th key={s} className="is-center">{s}</th>
                     ))}
-                    <th>Day off</th>
+                    <th>Day off / travel</th>
                     <th className="is-center">Rotation</th>
                     <th className="is-center">Lock</th>
                     <th>Time off</th>
@@ -166,7 +169,8 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                               const employment = e.target.value;
                               set(p.id, {
                                 employment,
-                                localOffDay: employment === 'Local' ? (p.localOffDay === 'None' ? 'Fri' : p.localOffDay) : 'None',
+                                localOffEvery: employment === 'Local' ? (p.localOffEvery || 2) : 0,
+                                longTravel: employment === 'Local' ? false : p.longTravel,
                               });
                             }}
                           >
@@ -205,8 +209,20 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                             <div style={{ display: 'flex', gap: 4 }}>
                               <select
                                 className="select"
-                                style={{ width: 74 }}
+                                style={{ width: 92 }}
+                                value={p.localOffEvery ?? 0}
+                                onChange={(e) => set(p.id, { localOffEvery: +e.target.value, localOffOffset: 0 })}
+                                title="How often this local takes a day off"
+                              >
+                                {LOCAL_OFF_FREQUENCIES.map((f) => (
+                                  <option key={f.value} value={f.value}>{f.label}</option>
+                                ))}
+                              </select>
+                              <select
+                                className="select"
+                                style={{ width: 62 }}
                                 value={p.localOffDay}
+                                disabled={!p.localOffEvery}
                                 onChange={(e) => set(p.id, { localOffDay: e.target.value })}
                               >
                                 {LOCAL_OFF_DAYS.map((d) => (
@@ -216,16 +232,40 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                               <select
                                 className="select"
                                 style={{ width: 74 }}
-                                value={p.localOffParity}
-                                disabled={p.localOffDay === 'None'}
-                                onChange={(e) => set(p.id, { localOffParity: +e.target.value })}
+                                value={p.localOffOffset ?? 0}
+                                disabled={!p.localOffEvery}
+                                onChange={(e) => set(p.id, { localOffOffset: +e.target.value })}
+                                title="Which week of the cycle they take it"
                               >
-                                <option value={0}>Odd wks</option>
-                                <option value={1}>Even wks</option>
+                                {Array.from({ length: Math.max(1, p.localOffEvery || 1) }, (_, i) => (
+                                  <option key={i} value={i}>Wk {i + 1}</option>
+                                ))}
                               </select>
                             </div>
                           ) : (
-                            <span className="muted small">—</span>
+                            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+                              <label className="skillbox" style={{ width: 'auto' }} title="Long flight — alternate travel days each rotation">
+                                <input
+                                  type="checkbox"
+                                  checked={!!p.longTravel}
+                                  onChange={(e) => set(p.id, { longTravel: e.target.checked })}
+                                />
+                                <span className="skillbox-face" aria-hidden="true">✈</span>
+                              </label>
+                              {p.longTravel && (
+                                <select
+                                  className="select"
+                                  style={{ width: 148 }}
+                                  value={p.travelPhase ?? 0}
+                                  onChange={(e) => set(p.id, { travelPhase: +e.target.value })}
+                                  title="Travel profile for their first rotation — it alternates after that"
+                                >
+                                  {TRAVEL_PROFILES.map((t) => (
+                                    <option key={t.value} value={t.value}>1st: {t.label}</option>
+                                  ))}
+                                </select>
+                              )}
+                            </div>
                           )}
                         </td>
 
@@ -315,8 +355,20 @@ export default function Roster({ site, sites, people, program, update, addMany, 
         <p>
           <strong>Rotation</strong> is how many weeks a traveler has already worked heading into week 1, so
           0 means they start a fresh three-week run and 3 means week 1 is their home week. Auto-balance
-          sets these for you. <strong>Day off</strong> gives each local one Monday or Friday off every
-          other week. <strong>Lock</strong> pins a person's rotation so auto-balance works around them.
+          sets these for you.
+        </p>
+        <p style={{ marginTop: 8 }}>
+          For <strong>locals</strong>, pick how often they take a Monday or Friday off — every 2 weeks,
+          every 3 weeks, or never — and which week of that cycle it falls on. Auto-balance staggers the
+          day and the week across your locals but never changes the frequency you set.
+        </p>
+        <p style={{ marginTop: 8 }}>
+          For <strong>travelers</strong>, the default is fly in Sunday, fly out Friday night, so they are
+          on site all five days. Tick <strong>✈ Long travel</strong> for anyone with a flight too long to
+          do that every week: they alternate between flying in Monday and out late Friday for one
+          rotation, then in Sunday and out Thursday night for the next. That trades one day a week for a
+          long block at home between rotations. <strong>Lock</strong> pins a person so auto-balance works
+          around them.
         </p>
       </div>
     </div>

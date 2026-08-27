@@ -29,7 +29,7 @@ export default function Setup({
   };
 
   const exportSchedule = () => {
-    const header = ['Site', 'Name', 'Role', 'Type', 'Lift', ...SKILLS];
+    const header = ['Site', 'Name', 'Role', 'Type', 'Lift', 'Long travel', 'Day off', ...SKILLS];
     for (let w = 0; w < program.numWeeks; w++) header.push(`Wk${w + 1} ${fmtWeekLong(program.startDate, w)}`);
     const rows = [header];
 
@@ -38,6 +38,10 @@ export default function Setup({
         const pattern = buildPattern(p, program.numWeeks, program.maxConsecutive);
         rows.push([
           site.name, p.name, p.role, p.employment, p.lift || '',
+          p.employment === 'Traveler' && p.longTravel ? 'Y' : '',
+          p.employment === 'Local' && p.localOffEvery
+            ? `${p.localOffDay} every ${p.localOffEvery} wks`
+            : p.employment === 'Local' ? 'None' : '',
           ...SKILLS.map((s) => (p.skills[s] ? 'Y' : '')),
           ...pattern.map((st) => (st === 'ON' ? 'ON' : st === 'TIME_OFF' ? 'PTO' : 'HOME')),
         ]);
