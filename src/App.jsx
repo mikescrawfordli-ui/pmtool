@@ -198,12 +198,13 @@ export default function App() {
       sites: s.sites.filter((x) => x.id !== id),
       people: s.people.filter((p) => p.siteId !== id),
     }));
-    setSiteId((cur) => {
-      if (cur !== id) return cur;
-      const remaining = state.sites.filter((x) => x.id !== id);
-      return remaining[0]?.id;
-    });
-  }, [state.sites]);
+    // Just clear the selection rather than naming the next site from a copy
+    // of the list that may already be out of date — a snapshot from another
+    // device can replace state between this render and this click. `site`
+    // falls back to the first remaining site on its own, and it reads the
+    // state this update produces rather than the one that was captured.
+    setSiteId((cur) => (cur === id ? undefined : cur));
+  }, []);
 
   const setProgram = useCallback((patch) => {
     setState((s) => ({ ...s, program: { ...s.program, ...patch } }));
