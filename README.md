@@ -9,65 +9,145 @@ editable, so it carries forward to the next program.
 
 ---
 
-## Deploy it
+## Run it locally
 
 ```bash
 npm install
 npm run dev        # http://localhost:5173
 ```
 
-To put it online:
+On Windows PowerShell, script execution is often blocked for `npm.ps1`. Use
+`npm.cmd run dev` instead — it skips the PowerShell shim and needs no policy
+change.
 
-1. Push this folder to a new GitHub repository.
-2. Go to vercel.com → **Add New → Project** → import that repository.
-3. Vercel detects Vite on its own. Leave every setting alone and hit **Deploy**.
+---
 
-No login, no environment variables, no database to provision.
+## Deploy it
+
+Hosting is Firebase, and it deploys itself. Every push to `main` triggers
+`.github/workflows/deploy.yml`, which builds and publishes to
+`https://pm-tool-4d33e.web.app`. Pull requests get their own temporary preview URL.
+
+The workflow needs one repository secret, `FIREBASE_SERVICE_ACCOUNT`. See
+"First-time Firebase setup" below.
 
 ---
 
 ## Where your data lives
 
-Everything is saved in your browser's local storage on the machine you're using.
-Nothing is uploaded, and there's no account. Two consequences worth knowing:
+The plan lives in **Cloud Firestore**, in a single document at `boards/main`,
+and it is shared by the whole crew. Open the board on any machine, sign in, and
+you get the current plan; edits show up on everyone else's screen within a
+second or so.
 
-- The plan **will not** follow you to a different computer or a different browser
-  on its own.
-- Clearing site data for the deployment URL erases it.
+Sign-in is Google, and the list of people allowed to open the board is in
+`firestore.rules`. That list is the entire security boundary — it is enforced
+on Google's servers, so it cannot be worked around by editing the app or
+calling the database directly. To add or remove someone, edit the list and
+redeploy the rules:
 
-So: **Setup → Export backup** writes a `.json` you can keep in Drive or the repo,
-and **Import backup** loads it anywhere. Do that before switching machines.
+```bash
+npm.cmd run deploy:rules
+```
 
-If you later want the plan shared live across a crew, the whole storage layer is
-four functions in `src/lib/storage.js`. Swap them for `fetch()` calls against a
-Vercel Postgres or KV store and nothing else in the app has to change. Keep in
-mind that without a login, anyone with the URL could edit it.
+Your browser also keeps a local copy in localStorage. That is a cache, not the
+record: it makes the board paint instantly instead of flashing empty while the
+network round-trips, and it keeps the plan readable if the connection drops.
+
+**Setup → Export backup** still writes a `.json`, and it is still worth doing
+before anything drastic. Firestore is not a substitute for a backup you hold.
+
+### One board, last write wins
+
+Everyone edits the same document. If two people change the roster at the same
+moment, the later save wins and the earlier one is overwritten — there is no
+merge. For a crew coordinating on one plan this is usually what you want, but
+it is worth knowing before two people start editing different sites at once.
+
+Writes are debounced by 800 ms, so typing a name is one save, not fifteen.
 
 ---
 
-## The five tabs
+## First-time Firebase setup
 
-**Dashboard** — the coverage strip is the main event: one row per skill, one cell
+Only needed once, and most of it is in the Firebase console.
+
+1. **Create a web app.** Firebase console → Project settings (gear) → Your apps
+   → Web. Copy the config object it gives you into `src/lib/firebase.js`,
+   replacing the `PASTE_...` placeholders. These values are public by design —
+   they name the project, they do not grant access to it, and Google documents
+   them as safe to commit.
+
+2. **Turn on Google sign-in.** Authentication → Sign-in method → Google →
+   Enable.
+
+3. **Create the database.** Firestore Database → Create database → production
+   mode. Pick a region near the crew; it cannot be changed later.
+
+4. **Add yourself to the crew list** in `firestore.rules`, then deploy the
+   rules and hosting:
+
+   ```bash
+   npx.cmd firebase login
+   npm.cmd run deploy
+   ```
+
+5. **Connect GitHub** so pushes deploy themselves:
+
+   ```bash
+   npx.cmd firebase init hosting:github
+   ```
+
+   This creates the service account and stores it as a repository secret. Name
+   the secret `FIREBASE_SERVICE_ACCOUNT` to match the workflow, and let it
+   overwrite the workflow file it offers to write.
+
+6. **Check the authorized domains.** Authentication → Settings → Authorized
+   domains should list `pm-tool-4d33e.web.app` and `localhost`. Sign-in fails with
+   `auth/unauthorized-domain` if the domain serving the app is not there.
+
+The project ID is `pm-tool-4d33e`, not `pm-tool` — Firebase appended a suffix
+because the plain name was taken. `.firebaserc` and the deploy workflow both
+use the full ID.
+
+---
+
+## The tabs
+
+**Dashboard** — **Look ahead** is the first thing to read: a condensed strip of
+the coming weeks showing only where trouble is, with the first problem named
+and the next few listed in order. The window is adjustable from 4 weeks to the
+whole program, which is what makes a long horizon usable.
+
+Below it the coverage strip is the detail view: one row per skill, one cell
 per week, showing the *worst day* of that week. Hatched red is below target.
 Below it, charts for coverage against target, skill surplus and shortfall, and
 crew size. The Bench depth table at the bottom is the one to read when something
 won't go green — see "Why a gap won't close" below.
 
 **Roster** — every person, with a checkbox per skill: RCx, ECx, MCx, Quality,
-Injection, SCCAF, OFE. Add people, remove them, or move someone to another site
-with the Site dropdown. Book vacation with the Time off button. The Day off /
+Injection, SCCAF, OFE, VT Weld. Add people, remove them, or move someone to another site
+with the Site dropdown. Book time off with the Time off button — pick no days
+for a whole week, or pick weekdays for single-day PTO. Days apply to every week
+in the range, so "every Monday in October" is one booking. The Day off /
 travel column holds each local's day-off cycle and each traveler's Long travel
 setting.
 
 **Schedule** — the week grid. Click any week to pin it as a home week; click
 again to release it. Auto-balance is here too.
 
-**Requirements** — how many of each skill the site needs per day. Set a base
-number per skill, then override individual weeks as the project moves through
-phases. The bulk row sets a whole range at once.
+**Requirements** — how many of each skill the site needs per day, and whether
+those people are **Dedicated**. Set a base number per skill, then override
+individual weeks as the project moves through phases. The bulk row sets a whole
+range at once.
 
 **Setup** — program start date and length, the consecutive-week cap, adding and
-renaming sites, and backup/export.
+renaming sites, and backup/export. Program length is in weeks with `+1 month` /
+`+3 months` / `+6 months` shortcuts, up to five years. Adding weeks never
+disturbs what is already planned.
+
+**Access** — admins only. Who can open the board and at what level. See
+"Who can get in" below.
 
 ---
 
@@ -126,8 +206,13 @@ focused week day by day so you can see those dips directly.
 slot for every local, over and over, keeping whatever arrangement scores best.
 Missing people are weighted far above surplus people, which is above keeping crew
 size steady week to week. Tick **Lock** on the Roster to pin someone's rotation
-and make the balancer work around them. A 120-person, 52-week site balances in
-about half a second.
+and make the balancer work around them.
+
+Scoring a day with dedicated skills means solving that day's assignment, which
+is far more work than adding up counts. Hill climbing revisits the same day
+composition constantly, so results are cached on the skill-sets present and
+what the week demands — most lookups hit. A 120-person, 52-week site with five
+dedicated skills balances in about a third of a second.
 
 ---
 
@@ -159,10 +244,100 @@ Two of these showed up in your starting roster:
 
 ---
 
+## Who can get in
+
+Sign-in is Google. Who may open the board lives in the `members` collection in
+Firestore, one document per person keyed by email, and admins manage it from
+the **Access** tab — no redeploy, and nobody needs the Firebase console.
+
+| Level | Can do |
+|---|---|
+| **Admin** | The whole app, plus adding and removing people and changing roles |
+| **Content manager** | The whole app. Cannot change who has access |
+| **Viewer** | Read only. Can look at everything and export, cannot change anything |
+
+`firestore.rules` reads that same collection, so the rules are the enforcement
+point: a viewer cannot write even by tampering with the browser, and someone
+who is not on the list cannot read the board at all.
+
+One address is hardcoded as `owner()` in the rules and always keeps admin
+access. That is deliberate — it means no mistake on the Access tab, including
+the last admin demoting themselves, can lock everybody out. It is the one thing
+that needs a rules edit to change, and it must match `OWNER_EMAIL` in
+`src/lib/firebase.js`.
+
+### Time off, by week or by day
+
+A whole-week booking takes someone off site for the week and **resets** their
+consecutive-week counter, so they come back to a full fresh rotation.
+
+A day booking keeps them on the rotation and only removes those weekdays.
+Booking a Friday is not a week of leave, and counting it as one would both
+understate the crew and hand out an unearned rotation reset. Day bookings stack
+with a traveler's flight day and a local's day off, so someone on long travel
+who books Friday works Tuesday to Thursday.
+
+---
+
+## Dedicated skills, and why the numbers changed
+
+By default a skill target asks "is somebody qualified here?" — so one person
+ticked for RCx, Injection and SCCAF counts once in each of those three rows on
+the same day. That is the right question when the work is occasional and one
+person can pick it up alongside their main job.
+
+It is the wrong question when the work has to happen in parallel. Four people
+on RCx means four people doing RCx and nothing else; the Injection tech has to
+be a fifth body.
+
+Tick **Dedicated** on the Requirements tab for those skills. A dedicated target
+commits people to that skill alone, and the dashboard then counts bodies
+actually doing the work rather than bodies capable of it. Skills left
+undedicated share whoever the dedicated targets did not claim.
+
+Turning Dedicated on will usually make coverage look worse. Nothing about the
+crew changed — the old number was counting some people two or three times.
+
+### How it is worked out
+
+Deciding whether a set of dedicated targets can be met is an assignment
+problem, not a sum. Say four people do RCx only, a fifth does RCx and
+Injection, and the site wants 4 RCx plus 1 Injection. Handing RCx its four
+people first might take the dual-skilled one and leave Injection empty, which
+would report a shortfall that a different arrangement avoids.
+
+So each day is solved as a bipartite matching (Kuhn's algorithm): every slot
+tries to claim a free person, and failing that, takes an assigned one and
+recursively re-homes whoever is displaced. That re-homing is what makes the
+answer a true maximum. It is verified against brute-force enumeration over
+random rosters.
+
+The **Unassigned** row on the coverage strip is the slack left after every
+dedicated target is served — the people free for soft skills, punch lists, and
+whatever the week throws up.
+
+### When dedicated targets collide
+
+Checking skills one at a time misses the most common failure. If five people
+hold RCx and one holds Injection, both targets look satisfiable on their own —
+but if the Injection tech is one of the five, "4 dedicated RCx + 1 dedicated
+Injection" needs five distinct bodies out of five, and a single absence breaks
+it.
+
+The dashboard checks every *combination* of dedicated skills for this and says
+so directly, naming the skills that are competing and how many bodies short you
+are. It is checked on raw headcount, so anything it reports is broken before
+rotation is even considered.
+
+---
+
 ## Adding a skill column
 
 Add the string to `SKILLS` in `src/lib/constants.js` and give it a label in
-`SKILL_LABELS`. The roster checkboxes, requirements grid, coverage strip, charts,
+`SKILL_LABELS` (the key is the storage name and needs no spaces; the label is
+what people read, so `VTWeld` / `VT Weld`). Add it to the migration in
+`src/lib/storage.js` — boards saved before the skill existed have no entry for
+it, and the Requirements tab reads that entry directly. The roster checkboxes, requirements grid, coverage strip, charts,
 and bench table all pick it up with no other changes.
 
 ---

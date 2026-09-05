@@ -1,11 +1,13 @@
 import React from 'react';
 import { ON, TIME_OFF, DAYS } from '../lib/constants.js';
-import { buildSchedule, fmtWeek, timeOffEntry, offDayIndex, overworkedRuns } from '../lib/schedule.js';
+import { buildSchedule, fmtWeek, timeOffEntry, offDaysFor, isFullWeekOff, overworkedRuns } from '../lib/schedule.js';
 
 /** Click a week to pin it as a home week; click again to release it. */
 function toggleWeek(person, w) {
   const list = person.timeOff || [];
-  const hit = list.find((t) => w >= t.start && w <= t.end);
+  // Only whole-week bookings are pinnable here; a Friday of PTO is not a home
+  // week and must survive a click meant for the week around it.
+  const hit = list.find((t) => w >= t.start && w <= t.end && isFullWeekOff(t));
 
   if (!hit) {
     return [...list, { start: w, end: w, type: 'Home week' }];
@@ -103,7 +105,8 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                     {weeks.map((w) => {
                       const st = pattern[w];
                       const entry = st === TIME_OFF ? timeOffEntry(person, w) : null;
-                      const offIdx = st === ON ? offDayIndex(person, w, stintOf) : -1;
+                      // Rotation/travel day and any booked PTO days, together.
+                      const offList = st === ON ? offDaysFor(person, w, stintOf) : [];
                       const cls = st === ON ? 'is-on' : st === TIME_OFF ? 'is-time' : 'is-rot';
                       const label = st === ON ? 'ON' : st === TIME_OFF ? 'PTO' : 'HOME';
                       return (
@@ -114,11 +117,9 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                               st === TIME_OFF
                                 ? `${entry?.type || 'Time off'} — click to release`
                                 : st === ON
-                                  ? `On site${
-                                      offIdx >= 0
-                                        ? person.employment === 'Local'
-                                          ? `, day off ${DAYS[offIdx]}`
-                                          : `, travelling ${DAYS[offIdx]}`
+                                  ? `On site ${DAYS.length - offList.length} of ${DAYS.length} days${
+                                      offList.length
+                                        ? `, away ${offList.map((d) => DAYS[d]).join(', ')}`
                                         : ''
                                     } — click to pin a home week`
                                   : 'Rotation home week — click to pin as time off'
@@ -126,7 +127,11 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                             onClick={() => update(person.id, { timeOff: toggleWeek(person, w) })}
                           >
                             <span>{label}</span>
-                            {offIdx >= 0 && <span className="wk-sub">−{DAYS[offIdx]}</span>}
+                            {offList.length > 0 && (
+                              <span className="wk-sub">
+                                −{offList.map((d) => DAYS[d]).join(',')}
+                              </span>
+                            )}
                           </button>
                         </td>
                       );

@@ -372,3 +372,70 @@ th.sticky-col { z-index: 3; background: var(--surface-2); }
   .rail, .sitebar, .navbar { padding-left: 10px; padding-right: 10px; }
   .stat-value { font-size: 21px; }
 }
+
+/* --- sign-in / connection gates ------------------------------------------ */
+
+.gate {
+  max-width: 460px;
+  margin: 80px auto;
+  padding: 28px 30px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  text-align: center;
+}
+.gate h3 {
+  font-family: var(--display);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  margin: 0 0 10px;
+  color: var(--ink-3);
+}
+.gate p { color: var(--muted); font-size: 13px; line-height: 1.55; margin: 0 0 16px; }
+.gate code { font-family: var(--mono); font-size: 12px; }
+.gate-error { color: var(--alarm); margin: 14px 0 0; }
+
+.syncdot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-right: 6px;
+  background: var(--muted);
+}
+.syncdot.is-live { background: var(--ok, #2f9e63); }
+.syncdot.is-connecting { background: var(--warn, #d59a2a); }
+.syncdot.is-denied,
+.syncdot.is-error { background: var(--alarm); }
+
+/* --- look-ahead ---------------------------------------------------------- */
+
+.lookahead-list {
+  margin: 14px 0 0;
+  padding-left: 20px;
+  font-size: 13px;
+  line-height: 1.9;
+  color: var(--ink-2, #33404f);
+}
+.lookahead-list li { padding-left: 2px; }
+
+/* --- read-only mode ------------------------------------------------------ */
+
+/* A disabled fieldset switches off every control inside it, which is a
+   sturdier guard than remembering a `disabled` prop on each one. It must not
+   bring any of its own box with it. */
+.ro-wrap {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  min-width: 0;
+}
+.ro-wrap:disabled { opacity: 0.92; }
+
+.ro-banner {
+  padding: 8px 18px;
+  background: var(--amber-soft, #fdf3e0);
+  border-bottom: 1px solid var(--line, #d7dee6);
+  font-size: 12.5px;
+  color: var(--ink-2, #33404f);
+}

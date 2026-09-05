@@ -1,6 +1,6 @@
 // Skill columns tracked on every person. Add to this list and the whole app
 // (roster checkboxes, requirements grid, dashboard strips) picks it up.
-export const SKILLS = ['RCx', 'ECx', 'MCx', 'Quality', 'Injection', 'SCCAF', 'OFE'];
+export const SKILLS = ['RCx', 'ECx', 'MCx', 'Quality', 'Injection', 'SCCAF', 'OFE', 'VTWeld'];
 
 export const SKILL_LABELS = {
   RCx: 'Relay Cx',
@@ -10,7 +10,12 @@ export const SKILL_LABELS = {
   Injection: 'Injection',
   SCCAF: 'SCCAF',
   OFE: 'OFE',
+  VTWeld: 'VT Weld',
 };
+
+// Position in SKILLS, used as the bit position when a person's skills are
+// packed into an integer for the dedicated-allocation matching.
+export const SKILL_INDEX = Object.fromEntries(SKILLS.map((s, i) => [s, i]));
 
 // Work week. Travelers are present all five days on an "on" week.
 // Locals drop one day every other week (their Mon or Fri).

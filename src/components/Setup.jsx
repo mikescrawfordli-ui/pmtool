@@ -5,6 +5,7 @@ import { exportFile, exportCsv } from '../lib/storage.js';
 
 export default function Setup({
   state, setProgram, sites, updateSite, addSite, removeSite, replaceState, resetAll, notify,
+  canEdit = true,
 }) {
   const fileRef = useRef(null);
   const [newSiteName, setNewSiteName] = useState('');
@@ -51,14 +52,14 @@ export default function Setup({
     rows.push([]);
     for (const site of sites) {
       const sitePeople = state.people.filter((x) => x.siteId === site.id);
-      const { cov } = computeCoverage(sitePeople, program.numWeeks, program.maxConsecutive);
+      const { cov } = computeCoverage(sitePeople, program.numWeeks, program.maxConsecutive, site);
       rows.push([`${site.name} — worst-day coverage`]);
-      rows.push(['Skill', 'Target', ...Array.from({ length: program.numWeeks }, (_, w) => `Wk${w + 1}`)]);
+      rows.push(['Skill', 'Target', 'Dedicated', ...Array.from({ length: program.numWeeks }, (_, w) => `Wk${w + 1}`)]);
       for (const s of SKILLS) {
         const base = site.requirements.base[s].min;
         if (!base && !sitePeople.some((p) => p.skills[s])) continue;
         rows.push([
-          s, base,
+          s, base, site.requirements.base[s].hard ? 'Y' : '',
           ...Array.from({ length: program.numWeeks }, (_, w) => weekMin(cov, w, s)),
         ]);
       }
@@ -85,6 +86,7 @@ export default function Setup({
               <input
                 className="input"
                 type="date"
+                disabled={!canEdit}
                 value={program.startDate}
                 onChange={(e) => setProgram({ startDate: e.target.value })}
               />
@@ -96,10 +98,32 @@ export default function Setup({
                 style={{ width: 84 }}
                 type="number"
                 min="1"
-                max="104"
+                max="260"
+                disabled={!canEdit}
                 value={program.numWeeks}
-                onChange={(e) => setProgram({ numWeeks: Math.max(1, Math.min(104, +e.target.value || 1)) })}
+                onChange={(e) => setProgram({ numWeeks: Math.max(1, Math.min(260, +e.target.value || 1)) })}
               />
+            </div>
+            <div className="field">
+              <label>Add time</label>
+              <div className="row" style={{ gap: 4 }}>
+                {[
+                  { label: '+1 month', weeks: 4 },
+                  { label: '+3 months', weeks: 13 },
+                  { label: '+6 months', weeks: 26 },
+                ].map((step) => (
+                  <button
+                    key={step.label}
+                    className="btn is-sm"
+                    disabled={!canEdit}
+                    onClick={() =>
+                      setProgram({ numWeeks: Math.min(260, program.numWeeks + step.weeks) })
+                    }
+                  >
+                    {step.label}
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="field">
               <label>Max weeks in a row</label>
@@ -109,14 +133,17 @@ export default function Setup({
                 type="number"
                 min="1"
                 max="8"
+                disabled={!canEdit}
                 value={program.maxConsecutive}
                 onChange={(e) => setProgram({ maxConsecutive: Math.max(1, Math.min(8, +e.target.value || 3)) })}
               />
             </div>
           </div>
           <p className="muted small" style={{ marginTop: 10, marginBottom: 0 }}>
-            Travelers can never be scheduled past the consecutive-week limit. Ending{' '}
-            {fmtWeekLong(program.startDate, program.numWeeks - 1)}.
+            Travelers can never be scheduled past the consecutive-week limit.{' '}
+            {program.numWeeks} weeks is about {Math.round((program.numWeeks / 4.345) * 10) / 10}{' '}
+            months, ending {fmtWeekLong(program.startDate, program.numWeeks - 1)}. Adding weeks
+            never disturbs what is already planned.
           </p>
         </div>
       </div>
@@ -147,6 +174,7 @@ export default function Setup({
                       <td>
                         <input
                           className="input"
+                          disabled={!canEdit}
                           value={s.name}
                           onChange={(e) => updateSite(s.id, { name: e.target.value })}
                         />
@@ -156,6 +184,7 @@ export default function Setup({
                         <label className="skillbox">
                           <input
                             type="checkbox"
+                            disabled={!canEdit}
                             checked={!!s.active}
                             onChange={(e) => updateSite(s.id, { active: e.target.checked })}
                           />
@@ -165,7 +194,7 @@ export default function Setup({
                       <td>
                         <button
                           className="btn is-danger is-sm"
-                          disabled={sites.length <= 1}
+                          disabled={!canEdit || sites.length <= 1}
                           onClick={() => {
                             if (confirm(`Delete ${s.name}? Its ${count} people will be deleted too.`)) {
                               removeSite(s.id);
@@ -188,6 +217,7 @@ export default function Setup({
               <input
                 className="input"
                 placeholder="ADC5"
+                disabled={!canEdit}
                 value={newSiteName}
                 onChange={(e) => setNewSiteName(e.target.value)}
                 onKeyDown={(e) => {
@@ -200,7 +230,7 @@ export default function Setup({
             </div>
             <button
               className="btn is-primary"
-              disabled={!newSiteName.trim()}
+              disabled={!canEdit || !newSiteName.trim()}
               onClick={() => {
                 addSite(newSiteName.trim());
                 setNewSiteName('');
@@ -217,8 +247,9 @@ export default function Setup({
           <div style={{ flex: 1 }}>
             <h2 className="card-title">Your data</h2>
             <p className="card-sub">
-              Everything is saved in this browser only. Nothing is uploaded anywhere and there is no
-              account. Export a backup before switching computers or clearing your browser.
+              The plan lives in the shared cloud board and follows you to any machine you sign in
+              from. Your browser keeps a local copy so it loads instantly and stays readable
+              offline. Export a backup before anything drastic — a shared board is not a backup.
             </p>
           </div>
         </div>
@@ -227,7 +258,7 @@ export default function Setup({
             <button className="btn is-primary" onClick={() => { exportFile(state); notify('Backup downloaded'); }}>
               Export backup (.json)
             </button>
-            <button className="btn" onClick={() => fileRef.current?.click()}>
+            <button className="btn" disabled={!canEdit} onClick={() => fileRef.current?.click()}>
               Import backup
             </button>
             <input
@@ -241,6 +272,7 @@ export default function Setup({
             <div className="rail-spacer" />
             <button
               className="btn is-danger"
+              disabled={!canEdit}
               onClick={() => {
                 if (confirm('Reset everything back to the starting roster? Your changes will be lost.')) {
                   resetAll();

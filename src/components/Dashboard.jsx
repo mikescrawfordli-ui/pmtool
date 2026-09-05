@@ -5,7 +5,7 @@ import {
 } from 'recharts';
 import { SKILLS, SKILL_LABELS, DAYS } from '../lib/constants.js';
 import { computeCoverage, reqFor, weekMin, weekMax, weekAvg, findGaps, fmtWeek } from '../lib/schedule.js';
-import { capacityCheck } from '../lib/balancer.js';
+import { capacityCheck, contentionCheck } from '../lib/balancer.js';
 
 const AXIS = { fontSize: 11, fontFamily: 'IBM Plex Mono, monospace', fill: '#66748a' };
 
@@ -18,13 +18,13 @@ function cellState(have, req) {
   return 'ok';
 }
 
-export default function Dashboard({ site, people, program, onBalance }) {
+export default function Dashboard({ site, people, program, onBalance, canEdit = true }) {
   const { numWeeks, startDate, maxConsecutive } = program;
   const weeks = useMemo(() => Array.from({ length: numWeeks }, (_, i) => i), [numWeeks]);
 
   const { cov } = useMemo(
-    () => computeCoverage(people, numWeeks, maxConsecutive),
-    [people, numWeeks, maxConsecutive],
+    () => computeCoverage(people, numWeeks, maxConsecutive, site),
+    [people, numWeeks, maxConsecutive, site],
   );
 
   const { gaps } = useMemo(
@@ -37,6 +37,14 @@ export default function Dashboard({ site, people, program, onBalance }) {
     [people, site, numWeeks, maxConsecutive],
   );
 
+  // Skills that are individually staffable but collectively are not.
+  const contention = useMemo(
+    () => contentionCheck(people, site, numWeeks),
+    [people, site, numWeeks],
+  );
+
+  const isHard = (skill) => reqFor(site, 0, skill).hard;
+
   const tracked = SKILLS.filter((s) => {
     const anyReq = weeks.some((w) => {
       const r = reqFor(site, w, s);
@@ -48,6 +56,7 @@ export default function Dashboard({ site, people, program, onBalance }) {
 
   const [focusSkillRaw, setFocusSkill] = useState(tracked[0] || SKILLS[0]);
   const [focusWeekRaw, setFocusWeek] = useState(0);
+  const [horizon, setHorizon] = useState(12);
 
   // Skills stop being tracked and the window shrinks; keep the selectors valid
   // rather than rendering an empty chart.
@@ -55,6 +64,17 @@ export default function Dashboard({ site, people, program, onBalance }) {
   const focusWeek = Math.min(focusWeekRaw, numWeeks - 1);
 
   const shortages = gaps.filter((g) => g.type === 'short');
+
+  // --- look-ahead ---------------------------------------------------------
+  const span = Math.min(horizon, numWeeks);
+  const aheadWeeks = weeks.slice(0, span);
+  const ahead = gaps
+    .filter((g) => g.week < span)
+    .sort((a, b) => a.week - b.week || a.skill.localeCompare(b.skill));
+  // Only skills that actually misbehave inside the window get a row.
+  const aheadSkills = tracked.filter((sk) => ahead.some((g) => g.skill === sk));
+  const firstBad = ahead.length ? ahead[0].week : null;
+  const gapAt = (sk, w) => ahead.find((g) => g.skill === sk && g.week === w);
   const surpluses = gaps.filter((g) => g.type === 'over');
   const cleanWeeks = weeks.filter((w) => !gaps.some((g) => g.week === w)).length;
 
@@ -133,6 +153,20 @@ export default function Dashboard({ site, people, program, onBalance }) {
         </div>
       </div>
 
+      {/* ---- Dedicated skills competing for the same people ---- */}
+      {contention.length > 0 && (
+        <div>
+          {contention.map((c) => (
+            <div key={c.skills.join('+')} className="callout is-alarm">
+              <p className="callout-title">
+                {c.skills.join(' + ')} — dedicated targets overlap
+              </p>
+              <p>{c.advice}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* ---- What is blocking coverage ---- */}
       {problemSkills.length > 0 && (
         <div>
@@ -152,7 +186,9 @@ export default function Dashboard({ site, people, program, onBalance }) {
           <p className="callout-title">Coverage gaps that rebalancing can fix</p>
           <p>
             The roster has the people; they are just arranged badly.{' '}
-            <button className="btn is-sm is-primary" onClick={onBalance}>Auto-balance</button>
+            <button className="btn is-sm is-primary" disabled={!canEdit} onClick={onBalance}>
+              Auto-balance
+            </button>
           </p>
         </div>
       )}
@@ -164,6 +200,102 @@ export default function Dashboard({ site, people, program, onBalance }) {
         </div>
       )}
 
+      {/* ---- Look ahead ---- */}
+      <div className="card">
+        <div className="card-head">
+          <div style={{ flex: 1 }}>
+            <h2 className="card-title">Look ahead</h2>
+            <p className="card-sub">
+              {firstBad === null
+                ? `Nothing to deal with in the next ${span} week${span === 1 ? '' : 's'}.`
+                : `First problem lands in week ${firstBad + 1}, ${fmtWeek(startDate, firstBad)}.`}
+            </p>
+          </div>
+          <select className="select" value={horizon} onChange={(e) => setHorizon(+e.target.value)}>
+            {[4, 8, 12, 26, 52].filter((n, i, a) => n <= numWeeks || a[i - 1] < numWeeks).map((n) => (
+              <option key={n} value={n}>Next {Math.min(n, numWeeks)} weeks</option>
+            ))}
+            <option value={numWeeks}>All {numWeeks} weeks</option>
+          </select>
+        </div>
+        <div className="card-body">
+          {aheadSkills.length === 0 ? (
+            <p className="muted small" style={{ margin: 0 }}>
+              Every target is met on every day of the next {span} week{span === 1 ? '' : 's'}.
+            </p>
+          ) : (
+            <>
+              <div className="tablewrap">
+                <div className="strip" style={{ minWidth: 120 + span * 26 }}>
+                  <div
+                    className="strip-row"
+                    style={{ gridTemplateColumns: `120px repeat(${span}, minmax(22px, 1fr))` }}
+                  >
+                    <div />
+                    {aheadWeeks.map((w) => (
+                      <div key={w} className="strip-head" style={{ fontSize: 10 }}>{w + 1}</div>
+                    ))}
+                  </div>
+                  {aheadSkills.map((sk) => (
+                    <div
+                      key={sk}
+                      className="strip-row"
+                      style={{ gridTemplateColumns: `120px repeat(${span}, minmax(22px, 1fr))` }}
+                    >
+                      <div className="strip-label">{sk}</div>
+                      {aheadWeeks.map((w) => {
+                        const g = gapAt(sk, w);
+                        return (
+                          <div
+                            key={w}
+                            className={`strip-cell is-${g ? (g.type === 'short' ? 'short' : 'over') : 'ok'}`}
+                            style={{ fontSize: 11 }}
+                            title={
+                              g
+                                ? `Week ${w + 1}: ${sk} ${g.have}/${g.need}${
+                                    g.days.length ? ` — short ${g.days.join(', ')}` : ''
+                                  }`
+                                : `Week ${w + 1}: ${sk} fine`
+                            }
+                          >
+                            {g ? (g.type === 'short' ? '!' : '+') : '·'}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <ol className="lookahead-list">
+                {ahead.slice(0, 8).map((g, i) => (
+                  <li key={i}>
+                    <strong>Wk {g.week + 1}</strong>{' '}
+                    <span className="muted">{fmtWeek(startDate, g.week)}</span> — {g.skill}{' '}
+                    {g.type === 'short' ? (
+                      <>
+                        <span className="chip is-alarm">{g.have}/{g.need}</span>{' '}
+                        {g.days.length === DAYS.length
+                          ? 'short all week'
+                          : `short ${g.days.join(', ')}`}
+                        {reqFor(site, g.week, g.skill).hard ? ' (dedicated)' : ''}
+                      </>
+                    ) : (
+                      <>
+                        <span className="chip is-amber">{g.have}</span> over the cap of {g.need}
+                      </>
+                    )}
+                  </li>
+                ))}
+                {ahead.length > 8 && (
+                  <li className="muted">…and {ahead.length - 8} more in this window.</li>
+                )}
+              </ol>
+            </>
+          )}
+        </div>
+      </div>
+
       {/* ---- Coverage strip: the signature view ---- */}
       <div className="card">
         <div className="card-head">
@@ -171,6 +303,8 @@ export default function Dashboard({ site, people, program, onBalance }) {
             <h2 className="card-title">Coverage strip</h2>
             <p className="card-sub">
               Worst day of each week, per skill. Hatched red is below target; amber is above the cap.
+              Rows marked <span className="chip is-mute">DED</span> are dedicated: the count is people
+              working that skill and nothing else.
             </p>
           </div>
           <div className="legend">
@@ -202,7 +336,10 @@ export default function Dashboard({ site, people, program, onBalance }) {
                   className="strip-row"
                   style={{ gridTemplateColumns: `120px repeat(${numWeeks}, minmax(40px, 1fr))` }}
                 >
-                  <div className="strip-label">{s}</div>
+                  <div className="strip-label">
+                    {s}
+                    {isHard(s) && <span className="chip is-mute" style={{ marginLeft: 5 }}>DED</span>}
+                  </div>
                   {weeks.map((w) => {
                     const have = weekMin(cov, w, s);
                     const req = reqFor(site, w, s);
@@ -211,7 +348,9 @@ export default function Dashboard({ site, people, program, onBalance }) {
                       <div
                         key={w}
                         className={`strip-cell is-${state}`}
-                        title={`${SKILL_LABELS[s]} · week ${w + 1}: ${have} on the worst day, target ${req.min}${
+                        title={`${SKILL_LABELS[s]} · week ${w + 1}: ${have} ${
+                          req.hard ? 'dedicated' : 'available'
+                        } on the worst day, target ${req.min}${
                           req.max != null && req.max !== '' ? `, cap ${req.max}` : ''
                         }`}
                       >
@@ -230,6 +369,21 @@ export default function Dashboard({ site, people, program, onBalance }) {
                 {weeks.map((w) => (
                   <div key={w} className="strip-cell is-off" title={`Lift-certified on site, week ${w + 1}`}>
                     {weekMin(cov, w, '_lift')}
+                  </div>
+                ))}
+              </div>
+              <div
+                className="strip-row"
+                style={{ gridTemplateColumns: `120px repeat(${numWeeks}, minmax(40px, 1fr))` }}
+              >
+                <div className="strip-label" style={{ color: 'var(--muted)' }}>Unassigned</div>
+                {weeks.map((w) => (
+                  <div
+                    key={w}
+                    className="strip-cell is-off"
+                    title={`Week ${w + 1}: people no dedicated skill claimed, on the worst day`}
+                  >
+                    {weekMin(cov, w, '_flex')}
                   </div>
                 ))}
               </div>
@@ -466,6 +620,7 @@ export default function Dashboard({ site, people, program, onBalance }) {
               <thead>
                 <tr>
                   <th>Skill</th>
+                  <th className="is-center">Dedicated</th>
                   <th className="is-num">On roster</th>
                   <th className="is-num">Local</th>
                   <th className="is-num">Traveler</th>
@@ -478,6 +633,7 @@ export default function Dashboard({ site, people, program, onBalance }) {
                 {capacity.map((c) => (
                   <tr key={c.skill}>
                     <td><strong>{c.skill}</strong> <span className="muted small">{SKILL_LABELS[c.skill]}</span></td>
+                    <td className="is-center muted small">{c.hard ? 'Yes' : '—'}</td>
                     <td className="is-num">{c.headcount}</td>
                     <td className="is-num">{c.locals}</td>
                     <td className="is-num">{c.travelers}</td>

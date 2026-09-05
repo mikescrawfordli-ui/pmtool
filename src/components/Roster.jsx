@@ -1,21 +1,30 @@
 import React, { useState } from 'react';
 import {
-  SKILLS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
+  SKILLS, DAYS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
   TRAVEL_PROFILES, TIME_OFF_TYPES,
 } from '../lib/constants.js';
-import { fmtWeekLong } from '../lib/schedule.js';
+import { fmtWeekLong, isFullWeekOff } from '../lib/schedule.js';
 import { newPerson } from '../lib/seed.js';
 
 function TimeOffEditor({ person, program, onChange, onClose }) {
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
   const [type, setType] = useState('Vacation');
+  // Empty means the whole week. Otherwise these weekdays, in every week of
+  // the range — which is how "every Monday for a month" gets booked.
+  const [days, setDays] = useState([]);
   const weeks = Array.from({ length: program.numWeeks }, (_, i) => i);
+
+  const toggleDay = (d) =>
+    setDays((cur) => (cur.includes(d) ? cur.filter((x) => x !== d) : [...cur, d].sort()));
 
   const add = () => {
     const s = Math.min(start, end);
     const e = Math.max(start, end);
-    onChange([...(person.timeOff || []), { start: s, end: e, type }]);
+    const entry = { start: s, end: e, type };
+    if (days.length > 0 && days.length < DAYS.length) entry.days = [...days];
+    onChange([...(person.timeOff || []), entry]);
+    setDays([]);
   };
 
   const remove = (idx) => {
@@ -54,9 +63,33 @@ function TimeOffEditor({ person, program, onChange, onClose }) {
               ))}
             </select>
           </div>
+          <div className="field">
+            <label>Days</label>
+            <div className="row" style={{ gap: 4 }}>
+              {DAYS.map((d, i) => (
+                <button
+                  key={d}
+                  type="button"
+                  className={`btn is-sm ${days.includes(i) ? 'is-primary' : ''}`}
+                  onClick={() => toggleDay(i)}
+                  title={`Book only ${d} off`}
+                >
+                  {d}
+                </button>
+              ))}
+            </div>
+          </div>
           <button className="btn is-primary" onClick={add}>Add time off</button>
           <button className="btn is-ghost" onClick={onClose}>Done</button>
         </div>
+
+        <p className="muted small" style={{ margin: '0 0 10px' }}>
+          {days.length === 0
+            ? 'No days picked, so this books the whole week off. Pick days for single-day PTO — they apply to every week in the range.'
+            : `Books ${days.map((d) => DAYS[d]).join(', ')} off in ${
+                start === end ? 'that week' : 'each week of the range'
+              }. The rest of the week is still worked.`}
+        </p>
 
         {(person.timeOff || []).length === 0 ? (
           <p className="muted small" style={{ margin: 0 }}>
@@ -68,6 +101,7 @@ function TimeOffEditor({ person, program, onChange, onClose }) {
               <span key={i} className="chip is-amber">
                 {t.type}: wk {t.start + 1}
                 {t.end !== t.start ? `–${t.end + 1}` : ''}
+                {!isFullWeekOff(t) && ` (${t.days.map((d) => DAYS[d]).join(', ')})`}
                 <button
                   className="btn is-ghost is-sm"
                   style={{ padding: '0 3px', marginLeft: 2 }}

@@ -1,0 +1,76 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    /*
+     * Who may do what.
+     *
+     * Access is data, not code: each person gets a document in `members`
+     * whose id is their email address and whose `role` is one of
+     *
+     *   admin   — the whole app, plus adding and removing people
+     *   editor  — the whole app ("Content manager" in the UI)
+     *   viewer  — read only
+     *
+     * so the owner manages access from the Access tab instead of anyone
+     * having to redeploy these rules.
+     *
+     * The owner address below is the one exception, hardcoded so that a
+     * mistake in the members collection — the last admin demoting
+     * themselves, say — can never lock everybody out of the board.
+     */
+    function owner() {
+      return 'mikescrawfordli@gmail.com';
+    }
+
+    function signedIn() {
+      return request.auth != null && request.auth.token.email_verified;
+    }
+
+    function isOwner() {
+      return signedIn() && request.auth.token.email == owner();
+    }
+
+    function memberPath() {
+      return /databases/$(database)/documents/members/$(request.auth.token.email);
+    }
+
+    function isMember() {
+      return signedIn() && exists(memberPath());
+    }
+
+    // Only ever called behind isMember(), so the get() is safe.
+    function role() {
+      return get(memberPath()).data.role;
+    }
+
+    function canRead() {
+      return isOwner() || (isMember() && role() in ['admin', 'editor', 'viewer']);
+    }
+
+    function canWrite() {
+      return isOwner() || (isMember() && role() in ['admin', 'editor']);
+    }
+
+    function isAdmin() {
+      return isOwner() || (isMember() && role() == 'admin');
+    }
+
+    // The single document holding the whole plan: sites, people, program.
+    match /boards/{boardId} {
+      allow read: if canRead();
+      allow write: if canWrite();
+    }
+
+    // Everyone who can open the board can see who else has access — the app
+    // needs it to know its own role. Only admins can change it.
+    match /members/{email} {
+      allow read: if canRead();
+      allow write: if isAdmin();
+    }
+
+    // Anything without an explicit allow above is denied by default,
+    // so there is no catch-all rule to write here.
+  }
+}

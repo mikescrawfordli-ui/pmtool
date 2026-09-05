@@ -10,7 +10,8 @@ export default function Requirements({ site, program, updateSite }) {
   const [bulk, setBulk] = useState({ skill: SKILLS[0], from: 1, to: numWeeks, min: 0 });
 
   const setBase = (skill, key, raw) => {
-    const value = raw === '' ? (key === 'max' ? null : 0) : Math.max(0, +raw);
+    const value =
+      key === 'hard' ? !!raw : raw === '' ? (key === 'max' ? null : 0) : Math.max(0, +raw);
     updateSite(site.id, {
       requirements: {
         ...reqs,
@@ -59,7 +60,9 @@ export default function Requirements({ site, program, updateSite }) {
             <h2 className="card-title">{site.name} skill targets</h2>
             <p className="card-sub">
               How many people with each skill must be on site every day. These are the numbers the
-              dashboard checks and auto-balance optimizes against.
+              dashboard checks and auto-balance optimizes against. Tick{' '}
+              <strong>Dedicated</strong> for work that needs its own people — those bodies are then
+              committed to that skill alone and cannot be counted toward anything else.
             </p>
           </div>
         </div>
@@ -70,6 +73,7 @@ export default function Requirements({ site, program, updateSite }) {
                 <tr>
                   <th>Skill</th>
                   <th className="is-center">Minimum per day</th>
+                  <th className="is-center">Dedicated</th>
                   <th className="is-center">Maximum before overstaffed</th>
                   <th>Meaning</th>
                 </tr>
@@ -92,6 +96,19 @@ export default function Requirements({ site, program, updateSite }) {
                     </td>
                     <td className="is-center">
                       <input
+                        type="checkbox"
+                        checked={!!reqs.base[s].hard}
+                        disabled={reqs.base[s].min === 0}
+                        title={
+                          reqs.base[s].min === 0
+                            ? 'Set a minimum first'
+                            : 'These people work this skill only'
+                        }
+                        onChange={(e) => setBase(s, 'hard', e.target.checked)}
+                      />
+                    </td>
+                    <td className="is-center">
+                      <input
                         className="input is-num is-tiny"
                         type="number"
                         min="0"
@@ -103,9 +120,11 @@ export default function Requirements({ site, program, updateSite }) {
                     <td className="muted small">
                       {reqs.base[s].min === 0
                         ? 'Not tracked at this site'
-                        : `Red below ${reqs.base[s].min}/day${
-                            reqs.base[s].max != null ? `, amber above ${reqs.base[s].max}/day` : ''
-                          }`}
+                        : `${
+                            reqs.base[s].hard
+                              ? `${reqs.base[s].min} dedicated, doing nothing else`
+                              : `${reqs.base[s].min}/day, may also cover other skills`
+                          }${reqs.base[s].max != null ? `, amber above ${reqs.base[s].max}/day` : ''}`}
                     </td>
                   </tr>
                 ))}

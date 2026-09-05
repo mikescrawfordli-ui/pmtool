@@ -1,5 +1,5 @@
 import { SKILLS, DAYS, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
-import { presenceGrid, skillList, isLiftCertified, reqFor } from './schedule.js';
+import { presenceGrid, isLiftCertified, reqFor, skillMask, allocateDay } from './schedule.js';
 
 /* Weights: a missing body is worth far more than an extra one, and both
    outweigh cosmetic week-to-week smoothing. */
@@ -47,14 +47,21 @@ function withOption(person, opt) {
   return { ...person, ...opt };
 }
 
-function blankCoverage(numWeeks) {
+/**
+ * What the balancer keeps per day.
+ *
+ * Scoring dedicated requirements needs to know *which* people are on site,
+ * not just how many hold each skill — two RCx bodies who also do Injection
+ * are a different situation from two who do not. So each day carries a count
+ * per distinct skill-set ("group") present, which is enough to reconstruct
+ * the day's roster for the matching while still updating in O(1) per person.
+ */
+function blankCoverage(numWeeks, nGroups) {
   const cov = [];
   for (let w = 0; w < numWeeks; w++) {
     const days = [];
     for (let d = 0; d < DAYS.length; d++) {
-      const c = { _total: 0, _lift: 0 };
-      for (const s of SKILLS) c[s] = 0;
-      days.push(c);
+      days.push({ _total: 0, _lift: 0, groups: new Int16Array(nGroups) });
     }
     cov.push(days);
   }
@@ -62,33 +69,124 @@ function blankCoverage(numWeeks) {
 }
 
 /** Add (sign=+1) or remove (sign=-1) one person's contribution in place. */
-function applyDelta(cov, grid, skills, lift, sign) {
+function applyDelta(cov, grid, group, lift, sign) {
   for (let w = 0; w < grid.length; w++) {
     for (let d = 0; d < DAYS.length; d++) {
       if (!grid[w][d]) continue;
       const c = cov[w][d];
       c._total += sign;
       if (lift) c._lift += sign;
-      for (const s of skills) c[s] += sign;
+      c.groups[group] += sign;
     }
   }
 }
 
-function scoreCoverage(cov, site, numWeeks) {
+/**
+ * Requirements for one week, flattened into the form scoring wants: dedicated
+ * demands as an array indexed by skill, soft minimums and caps as short lists.
+ * Built once per balance rather than re-read inside the hot loop.
+ */
+function buildWeekPlans(site, numWeeks) {
+  const plans = [];
+  for (let w = 0; w < numWeeks; w++) {
+    const demand = new Array(SKILLS.length).fill(0);
+    const soft = [];
+    const caps = [];
+    let anyHard = false;
+    for (let i = 0; i < SKILLS.length; i++) {
+      const r = reqFor(site, w, SKILLS[i]);
+      if (r.min > 0) {
+        if (r.hard) {
+          demand[i] = r.min;
+          anyHard = true;
+        } else {
+          soft.push({ i, min: r.min });
+        }
+      }
+      if (r.max != null && r.max !== '') caps.push({ i, max: r.max });
+    }
+    plans.push({
+      demand,
+      soft,
+      caps,
+      anyHard,
+      key: `${demand.join('.')}|${soft.map((x) => `${x.i}:${x.min}`).join('.')}|${caps
+        .map((x) => `${x.i}:${x.max}`)
+        .join('.')}`,
+    });
+  }
+  return plans;
+}
+
+/**
+ * The score contribution of one day, memoised.
+ *
+ * Hill climbing revisits the same day composition constantly — a traveler
+ * moving between rotation slots leaves most weeks looking exactly as they did
+ * before. The cost of a day depends only on which skill-sets are present and
+ * what that week demands, so the answer can be cached on those two things.
+ * Weeks with identical requirements share entries via the plan key, which is
+ * most of them.
+ */
+function dayCost(plan, day, ctx) {
+  const { groupMasks, scratch, memo } = ctx;
+
+  let n = 0;
+  let sig = plan.key;
+  for (let g = 0; g < groupMasks.length; g++) {
+    const k = day.groups[g];
+    sig += `,${k}`;
+    for (let j = 0; j < k; j++) scratch[n++] = groupMasks[g];
+  }
+
+  const hit = memo.get(sig);
+  if (hit !== undefined) return hit;
+
+  let short = 0;
+  let over = 0;
+
+  if (plan.anyHard) {
+    const { filled, owner } = allocateDay(scratch, plan.demand, n);
+    for (let i = 0; i < SKILLS.length; i++) {
+      if (plan.demand[i]) short += plan.demand[i] - filled[i];
+    }
+    for (const { i, min } of plan.soft) {
+      const bit = 1 << i;
+      let free = 0;
+      for (let p = 0; p < n; p++) if (owner[p] === -1 && scratch[p] & bit) free++;
+      if (free < min) short += min - free;
+    }
+  } else {
+    for (const { i, min } of plan.soft) {
+      const bit = 1 << i;
+      let have = 0;
+      for (let p = 0; p < n; p++) if (scratch[p] & bit) have++;
+      if (have < min) short += min - have;
+    }
+  }
+
+  for (const { i, max } of plan.caps) {
+    const bit = 1 << i;
+    let have = 0;
+    for (let p = 0; p < n; p++) if (scratch[p] & bit) have++;
+    if (have > max) over += have - max;
+  }
+
+  const cost = { short, over };
+  memo.set(sig, cost);
+  return cost;
+}
+
+function scoreCoverage(cov, plans, numWeeks, ctx) {
   let short = 0;
   let over = 0;
 
   for (let w = 0; w < numWeeks; w++) {
-    for (const s of SKILLS) {
-      const r = reqFor(site, w, s);
-      const hasMin = r.min > 0;
-      const hasMax = r.max != null && r.max !== '';
-      if (!hasMin && !hasMax) continue;
-      for (let d = 0; d < DAYS.length; d++) {
-        const c = cov[w][d][s];
-        if (hasMin && c < r.min) short += r.min - c;
-        if (hasMax && c > r.max) over += c - r.max;
-      }
+    const plan = plans[w];
+    for (let d = 0; d < DAYS.length; d++) {
+      const cost = dayCost(plan, cov[w][d], ctx);
+      short += cost.short;
+      over += cost.over;
     }
   }
 
@@ -111,10 +209,15 @@ function scoreCoverage(cov, site, numWeeks) {
   return short * W_SHORT + over * W_OVER + spread * W_SPREAD;
 }
 
-function buildContribution(person, numWeeks, maxOn) {
+function buildContribution(person, numWeeks, maxOn, groupOf) {
   const { grid } = presenceGrid(person, numWeeks, maxOn);
-  return { grid, skills: skillList(person), lift: isLiftCertified(person) };
+  return { grid, group: groupOf(skillMask(person)), lift: isLiftCertified(person) };
 }
+
+/* Every field optionsFor() is allowed to hand back. Kept in step with it so
+   the change count picks up a flipped travel phase or a shifted day-off week,
+   not just a new rotation slot. */
+const TURNED = ['rotationStart', 'travelPhase', 'localOffEvery', 'localOffDay', 'localOffOffset'];
 
 /**
  * Hill-climb the rotation offsets (travelers) and biweekly day-off slots
@@ -134,6 +237,25 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
     return { people, score: null, changed: 0 };
   }
 
+  // Rotation changes move people around; they never change what a person can
+  // do. So the distinct skill-sets are fixed for the whole balance and each
+  // person's group index can be computed once.
+  const groupMasks = [];
+  const groupIndex = new Map();
+  const groupOf = (mask) => {
+    let g = groupIndex.get(mask);
+    if (g === undefined) {
+      g = groupMasks.length;
+      groupMasks.push(mask);
+      groupIndex.set(mask, g);
+    }
+    return g;
+  };
+  for (const p of people) groupOf(skillMask(p));
+
+  const plans = buildWeekPlans(site, numWeeks);
+  const ctx = { groupMasks, scratch: new Int32Array(people.length), memo: new Map() };
+
   let bestPeople = people.map((p) => ({ ...p }));
   let bestScore = Infinity;
 
@@ -150,9 +272,9 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
       }
     }
 
-    const contrib = cur.map((p) => buildContribution(p, numWeeks, maxOn));
-    const cov = blankCoverage(numWeeks);
-    for (const c of contrib) applyDelta(cov, c.grid, c.skills, c.lift, 1);
+    const contrib = cur.map((p) => buildContribution(p, numWeeks, maxOn, groupOf));
+    const cov = blankCoverage(numWeeks, groupMasks.length);
+    for (const c of contrib) applyDelta(cov, c.grid, c.group, c.lift, 1);
 
     let improved = true;
     let passes = 0;
@@ -165,7 +287,7 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
         const options = optionsFor(person, maxOn);
         if (options.length < 2) continue;
 
-        applyDelta(cov, contrib[i].grid, contrib[i].skills, contrib[i].lift, -1);
+        applyDelta(cov, contrib[i].grid, contrib[i].group, contrib[i].lift, -1);
 
         let bestOpt = null;
         let bestOptScore = Infinity;
@@ -173,10 +295,10 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
 
         for (const opt of options) {
           const candidate = withOption(person, opt);
-          const c = buildContribution(candidate, numWeeks, maxOn);
-          applyDelta(cov, c.grid, c.skills, c.lift, 1);
-          const s = scoreCoverage(cov, site, numWeeks);
-          applyDelta(cov, c.grid, c.skills, c.lift, -1);
+          const c = buildContribution(candidate, numWeeks, maxOn, groupOf);
+          applyDelta(cov, c.grid, c.group, c.lift, 1);
+          const s = scoreCoverage(cov, plans, numWeeks, ctx);
+          applyDelta(cov, c.grid, c.group, c.lift, -1);
           if (s < bestOptScore - 1e-9) {
             bestOptScore = s;
             bestOpt = opt;
@@ -190,12 +312,12 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
 
         Object.assign(person, bestOpt);
         contrib[i] = bestContrib;
-        applyDelta(cov, bestContrib.grid, bestContrib.skills, bestContrib.lift, 1);
+        applyDelta(cov, bestContrib.grid, bestContrib.group, bestContrib.lift, 1);
         if (changedThis) improved = true;
       }
     }
 
-    const score = scoreCoverage(cov, site, numWeeks);
+    const score = scoreCoverage(cov, plans, numWeeks, ctx);
     if (score < bestScore - 1e-9) {
       bestScore = score;
       bestPeople = cur.map((p) => ({ ...p }));
@@ -206,13 +328,7 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
   for (let i = 0; i < people.length; i++) {
     const a = people[i];
     const b = bestPeople[i];
-    if (
-      a.rotationStart !== b.rotationStart ||
-      a.localOffDay !== b.localOffDay ||
-      a.localOffParity !== b.localOffParity
-    ) {
-      changed++;
-    }
+    if (TURNED.some((k) => a[k] !== b[k])) changed++;
   }
 
   return { people: bestPeople, score: bestScore, changed };
@@ -266,7 +382,13 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
     const peak = withSkill.length;
 
     let peakNeed = 0;
-    for (let w = 0; w < numWeeks; w++) peakNeed = Math.max(peakNeed, reqFor(site, w, s).min);
+    let hard = false;
+    for (let w = 0; w < numWeeks; w++) {
+      const r = reqFor(site, w, s);
+      peakNeed = Math.max(peakNeed, r.min);
+      if (r.hard) hard = true;
+    }
+    const bodies = hard ? 'dedicated people' : 'people';
 
     let status = 'ok';
     let advice = '';
@@ -275,7 +397,7 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
       const gap = peakNeed - peak;
       advice =
         `${peak === 0 ? 'Nobody' : `Only ${peak} ${peak === 1 ? 'person' : 'people'}`} on this roster ` +
-        `${peak <= 1 ? 'has' : 'have'} ${s}, and the target is ${peakNeed} per day. ` +
+        `${peak <= 1 ? 'has' : 'have'} ${s}, and the target is ${peakNeed} ${bodies} per day. ` +
         `Tick ${s} for ${gap} more ${gap === 1 ? 'person' : 'people'} on the Roster tab, or bring ${gap} in from another site.`;
     } else if (peakNeed > 0 && floor < peakNeed) {
       status = 'tight';
@@ -303,9 +425,83 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
       travelers: travelers.length,
       floor,
       peakNeed,
+      hard,
       status,
       advice,
     });
   }
   return out;
+}
+
+/**
+ * Where dedicated skills fight over the same people.
+ *
+ * Checking skills one at a time misses the most common way a dedicated plan
+ * fails. Five people hold RCx and one holds Injection, so each target looks
+ * satisfiable — but if that Injection person is one of the five, four
+ * dedicated RCx plus one dedicated Injection needs five distinct bodies out of
+ * five, and any absence breaks it.
+ *
+ * So this checks every *combination* of dedicated skills: the people who can
+ * do at least one skill in the group must number at least the sum of the
+ * group's demands. (This is Hall's condition; when it holds for every group,
+ * an assignment exists.) Only minimal failing groups are reported — if RCx and
+ * Injection already conflict, saying so again with MCx added is noise.
+ *
+ * Counts are raw headcount, ignoring who is away, so anything reported here is
+ * broken before rotation is even considered.
+ */
+export function contentionCheck(people, site, numWeeks) {
+  const hard = [];
+  for (const s of SKILLS) {
+    let need = 0;
+    let isHard = false;
+    for (let w = 0; w < numWeeks; w++) {
+      const r = reqFor(site, w, s);
+      if (r.hard && r.min > 0) {
+        isHard = true;
+        need = Math.max(need, r.min);
+      }
+    }
+    if (isHard) hard.push({ skill: s, need });
+  }
+  if (hard.length < 2) return [];
+
+  const found = [];
+  const n = hard.length;
+  for (let bits = 1; bits < 1 << n; bits++) {
+    const group = [];
+    let need = 0;
+    for (let i = 0; i < n; i++) {
+      if (bits & (1 << i)) {
+        group.push(hard[i]);
+        need += hard[i].need;
+      }
+    }
+    if (group.length < 2) continue;
+
+    const pool = people.filter((p) => p.skills && group.some((g) => p.skills[g.skill])).length;
+    if (pool >= need) continue;
+
+    // Skip any group that merely contains an already-reported conflict.
+    if (found.some((f) => (f.bits & bits) === f.bits)) continue;
+
+    found.push({
+      bits,
+      skills: group.map((g) => g.skill),
+      demands: group.map((g) => `${g.skill} ${g.need}`),
+      need,
+      pool,
+      short: need - pool,
+    });
+  }
+
+  return found.map(({ bits, ...rest }) => ({
+    ...rest,
+    advice:
+      `${rest.demands.join(' and ')} per day needs ${rest.need} different people, but only ` +
+      `${rest.pool} on this roster can do any of them. Even with nobody away you are ` +
+      `${rest.short} short. Cross-train someone, bring ${rest.short} in from another site, or ` +
+      `drop one of these skills back to a shared requirement.`,
+  }));
 }

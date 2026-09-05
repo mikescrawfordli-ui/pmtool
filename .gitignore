@@ -1,0 +1,7 @@
+node_modules/
+dist/
+
+# Firebase CLI working files
+.firebase/
+firebase-debug.log
+firestore-debug.log
