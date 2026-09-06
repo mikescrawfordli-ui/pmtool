@@ -3,7 +3,7 @@ import {
   SKILLS, DAYS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
   TRAVEL_PROFILES, TIME_OFF_TYPES,
 } from '../lib/constants.js';
-import { fmtWeekLong, isFullWeekOff } from '../lib/schedule.js';
+import { fmtWeekLong, isFullWeekOff, isTemporary, programWindow } from '../lib/schedule.js';
 import { newPerson } from '../lib/seed.js';
 
 function TimeOffEditor({ person, program, onChange, onClose }) {
@@ -33,7 +33,7 @@ function TimeOffEditor({ person, program, onChange, onClose }) {
 
   return (
     <tr>
-      <td colSpan={SKILLS.length + 10} style={{ background: 'var(--surface-2)', padding: '14px 16px' }}>
+      <td colSpan={SKILLS.length + 11} style={{ background: 'var(--surface-2)', padding: '14px 16px' }}>
         <div className="row" style={{ marginBottom: 10 }}>
           <div className="field">
             <label>From week</label>
@@ -120,6 +120,7 @@ function TimeOffEditor({ person, program, onChange, onClose }) {
 }
 
 export default function Roster({ site, sites, people, program, update, addMany, removeOne }) {
+  const weeks = Array.from({ length: program.numWeeks }, (_, i) => i);
   const [openTimeOff, setOpenTimeOff] = useState(null);
 
   const set = (id, patch) => update(id, patch);
@@ -168,6 +169,7 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                     <th>Day off / travel</th>
                     <th className="is-center">Rotation</th>
                     <th className="is-center">Lock</th>
+                    <th>On site</th>
                     <th>Time off</th>
                     <th>Site</th>
                     <th />
@@ -330,6 +332,54 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                             />
                             <span className="skillbox-face" aria-hidden="true">L</span>
                           </label>
+                        </td>
+
+                        <td>
+                          {/* Short-term people are only crew for part of the
+                              program; blank "through" means no end date. */}
+                          <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                            <select
+                              className="select"
+                              style={{ width: 62 }}
+                              value={p.startWeek ?? 0}
+                              title="First week on site"
+                              onChange={(e) => {
+                                const from = +e.target.value;
+                                const to = p.endWeek;
+                                set(p.id, {
+                                  startWeek: from,
+                                  // Never leave a window that ends before it starts.
+                                  endWeek: to != null && to < from ? from : to,
+                                });
+                              }}
+                            >
+                              {weeks.map((w) => (
+                                <option key={w} value={w}>{w + 1}</option>
+                              ))}
+                            </select>
+                            <span className="muted small">to</span>
+                            <select
+                              className="select"
+                              style={{ width: 68 }}
+                              value={p.endWeek ?? ''}
+                              title="Last week on site — End means through the whole program"
+                              onChange={(e) =>
+                                set(p.id, { endWeek: e.target.value === '' ? null : +e.target.value })
+                              }
+                            >
+                              <option value="">End</option>
+                              {weeks
+                                .filter((w) => w >= (p.startWeek ?? 0))
+                                .map((w) => (
+                                  <option key={w} value={w}>{w + 1}</option>
+                                ))}
+                            </select>
+                          </div>
+                          {isTemporary(p, program.numWeeks) && (
+                            <span className="muted small">
+                              {programWindow(p, program.numWeeks).weeks} wk stint
+                            </span>
+                          )}
                         </td>
 
                         <td>

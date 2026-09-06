@@ -1,5 +1,5 @@
 import React from 'react';
-import { ON, TIME_OFF, DAYS } from '../lib/constants.js';
+import { ON, TIME_OFF, OFF_PROGRAM, DAYS } from '../lib/constants.js';
 import { buildSchedule, fmtWeek, timeOffEntry, offDaysFor, isFullWeekOff, overworkedRuns } from '../lib/schedule.js';
 
 /** Click a week to pin it as a home week; click again to release it. */
@@ -107,14 +107,22 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                       const entry = st === TIME_OFF ? timeOffEntry(person, w) : null;
                       // Rotation/travel day and any booked PTO days, together.
                       const offList = st === ON ? offDaysFor(person, w, stintOf) : [];
-                      const cls = st === ON ? 'is-on' : st === TIME_OFF ? 'is-time' : 'is-rot';
-                      const label = st === ON ? 'ON' : st === TIME_OFF ? 'PTO' : 'HOME';
+                      const away = st === OFF_PROGRAM;
+                      const cls = away
+                        ? 'is-away'
+                        : st === ON ? 'is-on' : st === TIME_OFF ? 'is-time' : 'is-rot';
+                      const label = away
+                        ? '·'
+                        : st === ON ? 'ON' : st === TIME_OFF ? 'PTO' : 'HOME';
                       return (
                         <td key={w} style={{ padding: '2px 2px' }}>
                           <button
                             className={`wk ${cls}`}
+                            disabled={away}
                             title={
-                              st === TIME_OFF
+                              away
+                                ? 'Not on the program this week'
+                                : st === TIME_OFF
                                 ? `${entry?.type || 'Time off'} — click to release`
                                 : st === ON
                                   ? `On site ${DAYS.length - offList.length} of ${DAYS.length} days${

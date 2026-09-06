@@ -90,6 +90,9 @@ export function migrate(state) {
     p.skills = p.skills || {};
     p.timeOff = p.timeOff || [];
     if (p.rotationStart == null) p.rotationStart = 0;
+    // Everyone predating short-term windows is on for the whole program.
+    if (p.startWeek == null) p.startWeek = 0;
+    if (p.endWeek === undefined) p.endWeek = null;
 
     // v1 stored a Mon/Fri/None day plus an odd/even parity. v2 splits that into
     // a frequency (0 = never, 2, 3) and an offset within that cycle.

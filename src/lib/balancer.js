@@ -1,5 +1,5 @@
 import { SKILLS, DAYS, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
-import { presenceGrid, isLiftCertified, reqFor, skillMask, allocateDay } from './schedule.js';
+import { presenceGrid, isLiftCertified, reqFor, skillMask, allocateDay, onProgram } from './schedule.js';
 
 /* Weights: a missing body is worth far more than an extra one, and both
    outweigh cosmetic week-to-week smoothing. */
@@ -357,8 +357,9 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
   const slots = maxOn + 1;
   const out = [];
 
-  for (const s of SKILLS) {
-    const withSkill = people.filter((p) => p.skills && p.skills[s]);
+  // The guaranteed floor for one week, given who is actually on the program
+  // that week.
+  const floorOf = (withSkill) => {
     const locals = withSkill.filter((p) => p.employment === 'Local');
     const travelers = withSkill.filter((p) => p.employment !== 'Local');
 
@@ -378,53 +379,93 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
     const longTravelOnSite = Math.max(0, longTravel - Math.ceil(longTravel / slots));
     const travelDaysOut = Math.ceil(longTravelOnSite / 2);
 
-    const floor = locals.length - localsOut + (travelers.length - travelersHome) - travelDaysOut;
-    const peak = withSkill.length;
+    return {
+      headcount: withSkill.length,
+      locals: locals.length,
+      travelers: travelers.length,
+      localsOut,
+      travelersHome,
+      travelDaysOut,
+      floor: locals.length - localsOut + (travelers.length - travelersHome) - travelDaysOut,
+    };
+  };
 
-    let peakNeed = 0;
+  for (const s of SKILLS) {
+    const skilled = people.filter((p) => p.skills && p.skills[s]);
+
+    // Walk the weeks rather than judging the roster as a whole. Short-term
+    // people are only crew inside their window, so a single program-wide
+    // figure would credit a four-week specialist to all sixteen weeks and
+    // claim cover that is gone the moment they leave.
     let hard = false;
+    let peakNeed = 0;
+    let worst = null;
+
     for (let w = 0; w < numWeeks; w++) {
       const r = reqFor(site, w, s);
-      peakNeed = Math.max(peakNeed, r.min);
       if (r.hard) hard = true;
+      peakNeed = Math.max(peakNeed, r.min);
+      if (r.min <= 0) continue;
+
+      const here = skilled.filter((p) => onProgram(p, w));
+      const cap = floorOf(here);
+      const deficit = r.min - cap.floor;
+      const impossible = cap.headcount < r.min;
+
+      // Worst week first by "cannot be done at all", then by how far short.
+      const better =
+        !worst ||
+        (impossible && !worst.impossible) ||
+        (impossible === worst.impossible && deficit > worst.deficit);
+      if (better) worst = { ...cap, week: w, need: r.min, deficit, impossible };
     }
+
     const bodies = hard ? 'dedicated people' : 'people';
+    // No tracked requirement: describe the roster as it stands.
+    const base = worst || { ...floorOf(skilled), week: null, need: 0, deficit: 0, impossible: false };
+    const when = base.week == null ? '' : ` in week ${base.week + 1}`;
 
     let status = 'ok';
     let advice = '';
-    if (peakNeed > 0 && peak < peakNeed) {
+
+    if (base.need > 0 && base.impossible) {
       status = 'impossible';
-      const gap = peakNeed - peak;
+      const gap = base.need - base.headcount;
+      const n = base.headcount;
       advice =
-        `${peak === 0 ? 'Nobody' : `Only ${peak} ${peak === 1 ? 'person' : 'people'}`} on this roster ` +
-        `${peak <= 1 ? 'has' : 'have'} ${s}, and the target is ${peakNeed} ${bodies} per day. ` +
-        `Tick ${s} for ${gap} more ${gap === 1 ? 'person' : 'people'} on the Roster tab, or bring ${gap} in from another site.`;
-    } else if (peakNeed > 0 && floor < peakNeed) {
+        `${n === 0 ? 'Nobody' : `Only ${n} ${n === 1 ? 'person' : 'people'}`} on the program${when} ` +
+        `${n === 1 ? 'has' : 'have'} ${s}, and the target is ${base.need} ${bodies} per day. ` +
+        `Tick ${s} for ${gap} more ${gap === 1 ? 'person' : 'people'}, bring ${gap} in from another ` +
+        `site, or widen a short-term person's on-site window to cover${when || ' that week'}.`;
+    } else if (base.need > 0 && base.deficit > 0) {
       status = 'tight';
-      const short = peakNeed - floor;
+      const short = base.deficit;
       const reasons = [];
-      if (travelersHome > 0) reasons.push(`${travelersHome} home on rotation`);
-      if (localsOut > 0) reasons.push(`${localsOut} local on a day off`);
-      if (travelDaysOut > 0) reasons.push(`${travelDaysOut} travelling`);
+      if (base.travelersHome > 0) reasons.push(`${base.travelersHome} home on rotation`);
+      if (base.localsOut > 0) reasons.push(`${base.localsOut} local on a day off`);
+      if (base.travelDaysOut > 0) reasons.push(`${base.travelDaysOut} travelling`);
+      if (reasons.length === 0) reasons.push('the crew on site that week');
 
       const fixes = [];
-      if (travelersHome > 0) fixes.push(`add ${short} more ${s} ${short > 1 ? 'people' : 'person'}`);
-      if (localsOut > 0) fixes.push(`stretch a ${s} local's day off to every 3 weeks, or to Never`);
-      if (travelDaysOut > 0) fixes.push(`turn off Long travel for a ${s} traveler`);
-      fixes.push(`lower the target to ${floor}`);
+      if (base.travelersHome > 0) fixes.push(`add ${short} more ${s} ${short > 1 ? 'people' : 'person'}`);
+      if (base.localsOut > 0) fixes.push(`stretch a ${s} local's day off to every 3 weeks, or to Never`);
+      if (base.travelDaysOut > 0) fixes.push(`turn off Long travel for a ${s} traveler`);
+      fixes.push(`lower the target to ${base.floor}`);
 
       advice =
-        `Headcount is ${peak}, but on the worst day only ${floor} are guaranteed on site ` +
-        `(${reasons.join(', ')}). To hold ${peakNeed} every day: ${fixes.join(', or ')}.`;
+        `Headcount is ${base.headcount}${when}, but on the worst day only ${base.floor} ` +
+        `${base.floor === 1 ? 'is' : 'are'} guaranteed on site (${reasons.join(', ')}). ` +
+        `To hold ${base.need} every day: ${fixes.join(', or ')}.`;
     }
 
     out.push({
       skill: s,
-      headcount: peak,
-      locals: locals.length,
-      travelers: travelers.length,
-      floor,
+      headcount: base.headcount,
+      locals: base.locals,
+      travelers: base.travelers,
+      floor: base.floor,
       peakNeed,
+      worstWeek: base.week,
       hard,
       status,
       advice,

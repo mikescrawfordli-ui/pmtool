@@ -439,3 +439,15 @@ th.sticky-col { z-index: 3; background: var(--surface-2); }
   font-size: 12.5px;
   color: var(--ink-2, #33404f);
 }
+
+/* A week before someone joins the program or after they leave. Deliberately
+   quieter than a home week — they are not crew that week at all. */
+.wk.is-away {
+  background: repeating-linear-gradient(
+    45deg, var(--surface-2), var(--surface-2) 4px, var(--surface) 4px, var(--surface) 8px
+  );
+  color: var(--muted);
+  border-color: var(--line-soft);
+  cursor: default;
+}
+.wk.is-away:hover { background: var(--surface-2); }

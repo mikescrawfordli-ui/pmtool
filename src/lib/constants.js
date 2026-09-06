@@ -25,6 +25,10 @@ export const DAYS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri'];
 export const ON = 'ON';
 export const ROT_OFF = 'ROT_OFF'; // rotation home week
 export const TIME_OFF = 'TIME_OFF'; // vacation / PTO / pinned home week
+// Before someone arrives on the program or after they leave. Distinct from a
+// home week: a rotation gap means they come back, this means they are not
+// part of the crew that week at all.
+export const OFF_PROGRAM = 'OFF_PROGRAM';
 
 export const EMPLOYMENT = ['Traveler', 'Local'];
 export const LIFT = [

@@ -1,4 +1,4 @@
-import { SKILLS, SKILL_INDEX, DAYS, ON, ROT_OFF, TIME_OFF, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
+import { SKILLS, SKILL_INDEX, DAYS, ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
 
 /* ------------------------------------------------------------------ */
 /* Dates                                                               */
@@ -71,6 +71,39 @@ export function partialOffMask(person, w) {
 }
 
 /* ------------------------------------------------------------------ */
+/* On-site window                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Not everyone is on the program for its whole length. Short-term people come
+ * in for a stint — a few weeks of outage support, a specialist for one phase —
+ * and are simply not crew before or after it.
+ *
+ * `startWeek` defaults to the program start and `endWeek` to no end, so anyone
+ * without a window set is permanent, which is what every existing person is.
+ *
+ * Someone who leaves and comes back later is one window plus whole-week time
+ * off over the gap, rather than a second window to keep track of.
+ */
+export function onProgram(person, w) {
+  const from = person.startWeek ?? 0;
+  const to = person.endWeek ?? Infinity;
+  return w >= from && w <= to;
+}
+
+/** Inclusive [start, end] window clamped to the program, for display. */
+export function programWindow(person, numWeeks) {
+  const from = Math.max(0, person.startWeek ?? 0);
+  const to = Math.min(numWeeks - 1, person.endWeek ?? numWeeks - 1);
+  return { from, to, weeks: Math.max(0, to - from + 1) };
+}
+
+/** True when this person is on site for less than the whole program. */
+export function isTemporary(person, numWeeks) {
+  return (person.startWeek ?? 0) > 0 || (person.endWeek ?? numWeeks - 1) < numWeeks - 1;
+}
+
+/* ------------------------------------------------------------------ */
 /* Rotation pattern                                                    */
 /* ------------------------------------------------------------------ */
 
@@ -91,13 +124,22 @@ export function buildPattern(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
   const out = [];
 
   if (person.employment === 'Local') {
-    for (let w = 0; w < numWeeks; w++) out.push(isTimeOff(person, w) ? TIME_OFF : ON);
+    for (let w = 0; w < numWeeks; w++) {
+      if (!onProgram(person, w)) out.push(OFF_PROGRAM);
+      else out.push(isTimeOff(person, w) ? TIME_OFF : ON);
+    }
     return out;
   }
 
-  let worked = Math.max(0, Math.min(person.rotationStart || 0, maxOn));
+  const opening = Math.max(0, Math.min(person.rotationStart || 0, maxOn));
+  let worked = opening;
   for (let w = 0; w < numWeeks; w++) {
-    if (isTimeOff(person, w)) {
+    if (!onProgram(person, w)) {
+      out.push(OFF_PROGRAM);
+      // Hold them at their opening offset so a short-term traveler starts
+      // their rotation on arrival rather than partway through one.
+      worked = opening;
+    } else if (isTimeOff(person, w)) {
       out.push(TIME_OFF);
       worked = 0;
     } else if (worked >= maxOn) {

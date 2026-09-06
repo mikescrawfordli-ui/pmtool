@@ -30,6 +30,9 @@ function person(name, role, employment, lift, skills, extra = {}) {
     lift,
     skills,
     rotationStart: 0,
+    // Whole program unless a short-term window is set on the Roster.
+    startWeek: 0,
+    endWeek: null,
     // Locals: a day off every other week by default.
     localOffDay: 'Fri',
     localOffEvery: employment === 'Local' ? 2 : 0,
