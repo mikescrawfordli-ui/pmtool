@@ -1,5 +1,5 @@
 import { collection, deleteDoc, doc, onSnapshot, setDoc } from 'firebase/firestore';
-import { SKILLS } from './constants.js';
+import { DEFAULT_SKILLS } from './constants.js';
 import { buildSeed } from './seed.js';
 import { db } from './firebase.js';
 
@@ -70,15 +70,27 @@ export function migrate(state) {
     maxConsecutive: 3,
     ...(state.program || {}),
   };
-  // v3 adds a skill (VT Weld) and the hard/dedicated flag. A board saved
-  // before either existed has no entry for the new skill, and reading
-  // base[skill].min off `undefined` would throw on the Requirements tab.
+  // v4 moves the skill columns out of the code and into the board, so a
+  // board saved before that has no list and inherits the old hardcoded one.
+  if (!Array.isArray(state.skills) || state.skills.length === 0) {
+    state.skills = DEFAULT_SKILLS.map((x) => ({ ...x }));
+  }
+  // Ids are storage keys, so they have to exist, be strings and be unique;
+  // a duplicate would make two columns quietly share one set of ticks.
+  const seenIds = new Set();
+  state.skills = state.skills
+    .filter((x) => x && typeof x.id === 'string' && x.id)
+    .filter((x) => (seenIds.has(x.id) ? false : (seenIds.add(x.id), true)))
+    .map((x) => ({ id: x.id, code: x.code || x.id, label: x.label || x.code || x.id }));
+
+  // v3 added the hard/dedicated flag. Give every current column a base entry
+  // so the Requirements tab has something to bind its inputs to.
   for (const site of state.sites) {
     if (!site.requirements) site.requirements = { base: {}, overrides: {} };
     if (!site.requirements.base) site.requirements.base = {};
-    for (const s of SKILLS) {
-      const cur = site.requirements.base[s];
-      site.requirements.base[s] = {
+    for (const s of state.skills) {
+      const cur = site.requirements.base[s.id];
+      site.requirements.base[s.id] = {
         min: cur?.min ?? 0,
         max: cur?.max ?? null,
         hard: !!cur?.hard,

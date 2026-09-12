@@ -3,7 +3,7 @@ import {
   ResponsiveContainer, LineChart, Line, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, Cell,
 } from 'recharts';
-import { SKILLS, SKILL_LABELS, DAYS } from '../lib/constants.js';
+import { DAYS, skillCodes, skillLabels } from '../lib/constants.js';
 import { computeCoverage, reqFor, weekMin, weekMax, weekAvg, findGaps, fmtWeek } from '../lib/schedule.js';
 import { capacityCheck, contentionCheck } from '../lib/balancer.js';
 
@@ -18,34 +18,37 @@ function cellState(have, req) {
   return 'ok';
 }
 
-export default function Dashboard({ site, people, program, onBalance, canEdit = true }) {
+export default function Dashboard({ site, people, program, skills = [], onBalance, canEdit = true }) {
+  const ids = useMemo(() => skills.map((x) => x.id), [skills]);
+  const CODE = useMemo(() => skillCodes(skills), [skills]);
+  const LABEL = useMemo(() => skillLabels(skills), [skills]);
   const { numWeeks, startDate, maxConsecutive } = program;
   const weeks = useMemo(() => Array.from({ length: numWeeks }, (_, i) => i), [numWeeks]);
 
   const { cov } = useMemo(
-    () => computeCoverage(people, numWeeks, maxConsecutive, site),
+    () => computeCoverage(people, numWeeks, maxConsecutive, site, ids),
     [people, numWeeks, maxConsecutive, site],
   );
 
   const { gaps } = useMemo(
-    () => findGaps(site, people, numWeeks, maxConsecutive),
+    () => findGaps(site, people, numWeeks, maxConsecutive, ids),
     [site, people, numWeeks, maxConsecutive],
   );
 
   const capacity = useMemo(
-    () => capacityCheck(people, site, numWeeks, maxConsecutive),
+    () => capacityCheck(people, site, numWeeks, maxConsecutive, skills),
     [people, site, numWeeks, maxConsecutive],
   );
 
   // Skills that are individually staffable but collectively are not.
   const contention = useMemo(
-    () => contentionCheck(people, site, numWeeks),
+    () => contentionCheck(people, site, numWeeks, skills),
     [people, site, numWeeks],
   );
 
   const isHard = (skill) => reqFor(site, 0, skill).hard;
 
-  const tracked = SKILLS.filter((s) => {
+  const tracked = ids.filter((s) => {
     const anyReq = weeks.some((w) => {
       const r = reqFor(site, w, s);
       return r.min > 0 || (r.max != null && r.max !== '');
@@ -54,13 +57,13 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
     return anyReq || anyPeople;
   });
 
-  const [focusSkillRaw, setFocusSkill] = useState(tracked[0] || SKILLS[0]);
+  const [focusSkillRaw, setFocusSkill] = useState(tracked[0] || ids[0]);
   const [focusWeekRaw, setFocusWeek] = useState(0);
   const [horizon, setHorizon] = useState(12);
 
   // Skills stop being tracked and the window shrinks; keep the selectors valid
   // rather than rendering an empty chart.
-  const focusSkill = tracked.includes(focusSkillRaw) ? focusSkillRaw : tracked[0] || SKILLS[0];
+  const focusSkill = tracked.includes(focusSkillRaw) ? focusSkillRaw : tracked[0] || ids[0];
   const focusWeek = Math.min(focusWeekRaw, numWeeks - 1);
 
   const shortages = gaps.filter((g) => g.type === 'short');
@@ -242,7 +245,7 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
                       className="strip-row"
                       style={{ gridTemplateColumns: `120px repeat(${span}, minmax(22px, 1fr))` }}
                     >
-                      <div className="strip-label">{sk}</div>
+                      <div className="strip-label">{CODE[sk] || sk}</div>
                       {aheadWeeks.map((w) => {
                         const g = gapAt(sk, w);
                         return (
@@ -337,7 +340,7 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
                   style={{ gridTemplateColumns: `120px repeat(${numWeeks}, minmax(40px, 1fr))` }}
                 >
                   <div className="strip-label">
-                    {s}
+                    {CODE[s] || s}
                     {isHard(s) && <span className="chip is-mute" style={{ marginLeft: 5 }}>DED</span>}
                   </div>
                   {weeks.map((w) => {
@@ -348,7 +351,7 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
                       <div
                         key={w}
                         className={`strip-cell is-${state}`}
-                        title={`${SKILL_LABELS[s]} · week ${w + 1}: ${have} ${
+                        title={`${LABEL[s]} · week ${w + 1}: ${have} ${
                           req.hard ? 'dedicated' : 'available'
                         } on the worst day, target ${req.min}${
                           req.max != null && req.max !== '' ? `, cap ${req.max}` : ''
@@ -417,7 +420,7 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
               onChange={(e) => setFocusSkill(e.target.value)}
             >
               {tracked.map((s) => (
-                <option key={s} value={s}>{s} — {SKILL_LABELS[s]}</option>
+                <option key={s} value={s}>{CODE[s]} — {LABEL[s]}</option>
               ))}
             </select>
           </div>
@@ -512,7 +515,7 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
                     className="strip-row"
                     style={{ gridTemplateColumns: `120px repeat(${DAYS.length}, 1fr)` }}
                   >
-                    <div className="strip-label">{s}</div>
+                    <div className="strip-label">{CODE[s] || s}</div>
                     {DAYS.map((d, di) => {
                       const have = cov[focusWeek][di][s];
                       return (
@@ -632,7 +635,7 @@ export default function Dashboard({ site, people, program, onBalance, canEdit = 
               <tbody>
                 {capacity.map((c) => (
                   <tr key={c.skill}>
-                    <td><strong>{c.skill}</strong> <span className="muted small">{SKILL_LABELS[c.skill]}</span></td>
+                    <td><strong>{c.code || c.skill}</strong> <span className="muted small">{LABEL[c.skill]}</span></td>
                     <td className="is-center muted small">{c.hard ? 'Yes' : '—'}</td>
                     <td className="is-num">{c.headcount}</td>
                     <td className="is-num">{c.locals}</td>

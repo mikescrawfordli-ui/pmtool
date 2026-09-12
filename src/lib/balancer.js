@@ -1,4 +1,4 @@
-import { SKILLS, DAYS, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
+import { DAYS, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
 import { presenceGrid, isLiftCertified, reqFor, skillMask, allocateDay, onProgram } from './schedule.js';
 
 /* Weights: a missing body is worth far more than an extra one, and both
@@ -86,15 +86,15 @@ function applyDelta(cov, grid, group, lift, sign) {
  * demands as an array indexed by skill, soft minimums and caps as short lists.
  * Built once per balance rather than re-read inside the hot loop.
  */
-function buildWeekPlans(site, numWeeks) {
+function buildWeekPlans(site, numWeeks, ids) {
   const plans = [];
   for (let w = 0; w < numWeeks; w++) {
-    const demand = new Array(SKILLS.length).fill(0);
+    const demand = new Array(ids.length).fill(0);
     const soft = [];
     const caps = [];
     let anyHard = false;
-    for (let i = 0; i < SKILLS.length; i++) {
-      const r = reqFor(site, w, SKILLS[i]);
+    for (let i = 0; i < ids.length; i++) {
+      const r = reqFor(site, w, ids[i]);
       if (r.min > 0) {
         if (r.hard) {
           demand[i] = r.min;
@@ -146,8 +146,8 @@ function dayCost(plan, day, ctx) {
   let over = 0;
 
   if (plan.anyHard) {
-    const { filled, owner } = allocateDay(scratch, plan.demand, n);
-    for (let i = 0; i < SKILLS.length; i++) {
+    const { filled, owner } = allocateDay(scratch, plan.demand, n, plan.demand.length);
+    for (let i = 0; i < plan.demand.length; i++) {
       if (plan.demand[i]) short += plan.demand[i] - filled[i];
     }
     for (const { i, min } of plan.soft) {
@@ -209,9 +209,9 @@ function scoreCoverage(cov, plans, numWeeks, ctx) {
   return short * W_SHORT + over * W_OVER + spread * W_SPREAD;
 }
 
-function buildContribution(person, numWeeks, maxOn, groupOf) {
+function buildContribution(person, numWeeks, maxOn, groupOf, index) {
   const { grid } = presenceGrid(person, numWeeks, maxOn);
-  return { grid, group: groupOf(skillMask(person)), lift: isLiftCertified(person) };
+  return { grid, group: groupOf(skillMask(person, index)), lift: isLiftCertified(person) };
 }
 
 /* Every field optionsFor() is allowed to hand back. Kept in step with it so
@@ -228,6 +228,9 @@ const TURNED = ['rotationStart', 'travelPhase', 'localOffEvery', 'localOffDay', 
  * force every person against every option, many times over.
  */
 export function autoBalance(people, site, numWeeks, opts = {}) {
+  const ids = opts.ids || [];
+  const index = {};
+  ids.forEach((id, i) => { index[id] = i; });
   const maxOn = opts.maxOn || DEFAULT_MAX_CONSECUTIVE;
   const restarts = opts.restarts ?? 5;
   const maxPasses = opts.maxPasses ?? 12;
@@ -251,9 +254,9 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
     }
     return g;
   };
-  for (const p of people) groupOf(skillMask(p));
+  for (const p of people) groupOf(skillMask(p, index));
 
-  const plans = buildWeekPlans(site, numWeeks);
+  const plans = buildWeekPlans(site, numWeeks, ids);
   const ctx = { groupMasks, scratch: new Int32Array(people.length), memo: new Map() };
 
   let bestPeople = people.map((p) => ({ ...p }));
@@ -272,7 +275,7 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
       }
     }
 
-    const contrib = cur.map((p) => buildContribution(p, numWeeks, maxOn, groupOf));
+    const contrib = cur.map((p) => buildContribution(p, numWeeks, maxOn, groupOf, index));
     const cov = blankCoverage(numWeeks, groupMasks.length);
     for (const c of contrib) applyDelta(cov, c.grid, c.group, c.lift, 1);
 
@@ -295,7 +298,7 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
 
         for (const opt of options) {
           const candidate = withOption(person, opt);
-          const c = buildContribution(candidate, numWeeks, maxOn, groupOf);
+          const c = buildContribution(candidate, numWeeks, maxOn, groupOf, index);
           applyDelta(cov, c.grid, c.group, c.lift, 1);
           const s = scoreCoverage(cov, plans, numWeeks, ctx);
           applyDelta(cov, c.grid, c.group, c.lift, -1);
@@ -353,7 +356,7 @@ export function autoBalance(people, site, numWeeks, opts = {}) {
  * the roster needs another body, a relaxed target, a less frequent day off,
  * or one fewer long-travel person on that skill.
  */
-export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
+export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE, skills = []) {
   const slots = maxOn + 1;
   const out = [];
 
@@ -390,7 +393,10 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
     };
   };
 
-  for (const s of SKILLS) {
+  for (const sk of skills) {
+    // id is the storage key; code is what the user calls the column.
+    const s = sk.id;
+    const name = sk.code || sk.id;
     const skilled = people.filter((p) => p.skills && p.skills[s]);
 
     // Walk the weeks rather than judging the roster as a whole. Short-term
@@ -434,8 +440,8 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
       const n = base.headcount;
       advice =
         `${n === 0 ? 'Nobody' : `Only ${n} ${n === 1 ? 'person' : 'people'}`} on the program${when} ` +
-        `${n === 1 ? 'has' : 'have'} ${s}, and the target is ${base.need} ${bodies} per day. ` +
-        `Tick ${s} for ${gap} more ${gap === 1 ? 'person' : 'people'}, bring ${gap} in from another ` +
+        `${n === 1 ? 'has' : 'have'} ${name}, and the target is ${base.need} ${bodies} per day. ` +
+        `Tick ${name} for ${gap} more ${gap === 1 ? 'person' : 'people'}, bring ${gap} in from another ` +
         `site, or widen a short-term person's on-site window to cover${when || ' that week'}.`;
     } else if (base.need > 0 && base.deficit > 0) {
       status = 'tight';
@@ -447,9 +453,9 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
       if (reasons.length === 0) reasons.push('the crew on site that week');
 
       const fixes = [];
-      if (base.travelersHome > 0) fixes.push(`add ${short} more ${s} ${short > 1 ? 'people' : 'person'}`);
-      if (base.localsOut > 0) fixes.push(`stretch a ${s} local's day off to every 3 weeks, or to Never`);
-      if (base.travelDaysOut > 0) fixes.push(`turn off Long travel for a ${s} traveler`);
+      if (base.travelersHome > 0) fixes.push(`add ${short} more ${name} ${short > 1 ? 'people' : 'person'}`);
+      if (base.localsOut > 0) fixes.push(`stretch a ${name} local's day off to every 3 weeks, or to Never`);
+      if (base.travelDaysOut > 0) fixes.push(`turn off Long travel for a ${name} traveler`);
       fixes.push(`lower the target to ${base.floor}`);
 
       advice =
@@ -460,6 +466,7 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
 
     out.push({
       skill: s,
+      code: name,
       headcount: base.headcount,
       locals: base.locals,
       travelers: base.travelers,
@@ -492,9 +499,10 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
  * Counts are raw headcount, ignoring who is away, so anything reported here is
  * broken before rotation is even considered.
  */
-export function contentionCheck(people, site, numWeeks) {
+export function contentionCheck(people, site, numWeeks, skills = []) {
   const hard = [];
-  for (const s of SKILLS) {
+  for (const sk of skills) {
+    const s = sk.id;
     let need = 0;
     let isHard = false;
     for (let w = 0; w < numWeeks; w++) {
@@ -504,7 +512,7 @@ export function contentionCheck(people, site, numWeeks) {
         need = Math.max(need, r.min);
       }
     }
-    if (isHard) hard.push({ skill: s, need });
+    if (isHard) hard.push({ skill: s, code: sk.code || sk.id, need });
   }
   if (hard.length < 2) return [];
 
@@ -529,8 +537,8 @@ export function contentionCheck(people, site, numWeeks) {
 
     found.push({
       bits,
-      skills: group.map((g) => g.skill),
-      demands: group.map((g) => `${g.skill} ${g.need}`),
+      skills: group.map((g) => g.code),
+      demands: group.map((g) => `${g.code} ${g.need}`),
       need,
       pool,
       short: need - pool,

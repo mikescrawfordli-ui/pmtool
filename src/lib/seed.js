@@ -1,4 +1,4 @@
-import { SKILLS } from './constants.js';
+import { DEFAULT_SKILLS } from './constants.js';
 import { emptyRequirements } from './schedule.js';
 
 let uid = 0;
@@ -6,7 +6,7 @@ const id = (prefix) => `${prefix}_${Date.now().toString(36)}_${(uid++).toString(
 
 function sk(...list) {
   const out = {};
-  for (const s of SKILLS) out[s] = false;
+  for (const s of DEFAULT_SKILLS) out[s.id] = false;
   for (const s of list) out[s] = true;
   return out;
 }
@@ -125,13 +125,16 @@ export function buildSeed() {
       maxConsecutive: 3,
     },
     sites: [adc2, adc3, adc4],
+    // The live column list. Editable on the Roster tab.
+    skills: DEFAULT_SKILLS.map((x) => ({ ...x })),
     people,
   };
 }
 
 export function newPerson(siteId) {
+  // No need to pre-fill a flag per skill: an absent key reads as unticked,
+  // and the column list is editable now, so there is no fixed set to fill.
   const p = person('New person', '', 'Traveler', '', {});
-  for (const s of SKILLS) p.skills[s] = false;
   return { ...p, siteId, name: '' };
 }
 

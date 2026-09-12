@@ -1,13 +1,18 @@
 import React, { useState } from 'react';
-import { SKILLS, SKILL_LABELS } from '../lib/constants.js';
+import { skillCodes, skillLabels } from '../lib/constants.js';
 import { reqFor, fmtWeek } from '../lib/schedule.js';
 
-export default function Requirements({ site, program, updateSite }) {
+export default function Requirements({ site, program, updateSite, skills = [] }) {
+  const ids = skills.map((x) => x.id);
+  const CODE = skillCodes(skills);
+  const LABEL = skillLabels(skills);
+  // The column list is editable, so a skill can exist with no base entry yet.
+  const baseOf = (id) => reqs.base?.[id] || { min: 0, max: null, hard: false };
   const { numWeeks, startDate } = program;
   const weeks = Array.from({ length: numWeeks }, (_, i) => i);
   const reqs = site.requirements;
 
-  const [bulk, setBulk] = useState({ skill: SKILLS[0], from: 1, to: numWeeks, min: 0 });
+  const [bulk, setBulk] = useState({ skill: ids[0], from: 1, to: numWeeks, min: 0 });
 
   const setBase = (skill, key, raw) => {
     const value =
@@ -15,7 +20,7 @@ export default function Requirements({ site, program, updateSite }) {
     updateSite(site.id, {
       requirements: {
         ...reqs,
-        base: { ...reqs.base, [skill]: { ...reqs.base[skill], [key]: value } },
+        base: { ...reqs.base, [skill]: { ...baseOf(skill), [key]: value } },
       },
     });
   };
@@ -79,28 +84,28 @@ export default function Requirements({ site, program, updateSite }) {
                 </tr>
               </thead>
               <tbody>
-                {SKILLS.map((s) => (
+                {ids.map((s) => (
                   <tr key={s}>
                     <td>
-                      <strong>{s}</strong>{' '}
-                      <span className="muted small">{SKILL_LABELS[s]}</span>
+                      <strong>{CODE[s] || s}</strong>{' '}
+                      <span className="muted small">{LABEL[s]}</span>
                     </td>
                     <td className="is-center">
                       <input
                         className="input is-num is-tiny"
                         type="number"
                         min="0"
-                        value={reqs.base[s].min}
+                        value={baseOf(s).min}
                         onChange={(e) => setBase(s, 'min', e.target.value)}
                       />
                     </td>
                     <td className="is-center">
                       <input
                         type="checkbox"
-                        checked={!!reqs.base[s].hard}
-                        disabled={reqs.base[s].min === 0}
+                        checked={!!baseOf(s).hard}
+                        disabled={baseOf(s).min === 0}
                         title={
-                          reqs.base[s].min === 0
+                          baseOf(s).min === 0
                             ? 'Set a minimum first'
                             : 'These people work this skill only'
                         }
@@ -113,18 +118,18 @@ export default function Requirements({ site, program, updateSite }) {
                         type="number"
                         min="0"
                         placeholder="—"
-                        value={reqs.base[s].max ?? ''}
+                        value={baseOf(s).max ?? ''}
                         onChange={(e) => setBase(s, 'max', e.target.value)}
                       />
                     </td>
                     <td className="muted small">
-                      {reqs.base[s].min === 0
+                      {baseOf(s).min === 0
                         ? 'Not tracked at this site'
                         : `${
-                            reqs.base[s].hard
-                              ? `${reqs.base[s].min} dedicated, doing nothing else`
-                              : `${reqs.base[s].min}/day, may also cover other skills`
-                          }${reqs.base[s].max != null ? `, amber above ${reqs.base[s].max}/day` : ''}`}
+                            baseOf(s).hard
+                              ? `${baseOf(s).min} dedicated, doing nothing else`
+                              : `${baseOf(s).min}/day, may also cover other skills`
+                          }${baseOf(s).max != null ? `, amber above ${baseOf(s).max}/day` : ''}`}
                     </td>
                   </tr>
                 ))}
@@ -159,8 +164,8 @@ export default function Requirements({ site, program, updateSite }) {
                 value={bulk.skill}
                 onChange={(e) => setBulk({ ...bulk, skill: e.target.value })}
               >
-                {SKILLS.map((s) => (
-                  <option key={s}>{s}</option>
+                {ids.map((s) => (
+                  <option key={s} value={s}>{CODE[s] || s}</option>
                 ))}
               </select>
             </div>
@@ -218,9 +223,9 @@ export default function Requirements({ site, program, updateSite }) {
                 </tr>
               </thead>
               <tbody>
-                {SKILLS.map((s) => (
+                {ids.map((s) => (
                   <tr key={s}>
-                    <td className="sticky-col"><strong>{s}</strong></td>
+                    <td className="sticky-col"><strong>{CODE[s] || s}</strong></td>
                     {weeks.map((w) => {
                       const isOverride = !!(reqs.overrides?.[w]?.[s]);
                       const value = reqFor(site, w, s).min;

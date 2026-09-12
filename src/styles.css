@@ -451,3 +451,13 @@ th.sticky-col { z-index: 3; background: var(--surface-2); }
   cursor: default;
 }
 .wk.is-away:hover { background: var(--surface-2); }
+
+/* --- skill column editor -------------------------------------------------- */
+
+.colsedit {
+  background: var(--surface-2);
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+}
+.colsedit table { width: auto; }
+.colsedit td { vertical-align: middle; }

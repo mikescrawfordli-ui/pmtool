@@ -1,4 +1,4 @@
-import { SKILLS, SKILL_INDEX, DAYS, ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
+import { DAYS, ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
 
 /* ------------------------------------------------------------------ */
 /* Dates                                                               */
@@ -229,8 +229,9 @@ export function offDaysFor(person, w, stintOf) {
   return out;
 }
 
-export function skillList(person) {
-  return SKILLS.filter((s) => person.skills && person.skills[s]);
+/** The skill ids this person is ticked for, in column order. */
+export function skillList(person, ids) {
+  return ids.filter((s) => person.skills && person.skills[s]);
 }
 
 export function isLiftCertified(person) {
@@ -241,10 +242,14 @@ export function isLiftCertified(person) {
 /* Requirements                                                        */
 /* ------------------------------------------------------------------ */
 
+/**
+ * A site with no targets set. The base map starts empty rather than carrying
+ * a zero per column: the column list is editable, so any fixed set written
+ * here would be stale the moment a skill is added. Every reader defaults a
+ * missing entry to {min: 0, max: null, hard: false}.
+ */
 export function emptyRequirements() {
-  const base = {};
-  for (const s of SKILLS) base[s] = { min: 0, max: null, hard: false };
-  return { base, overrides: {} };
+  return { base: {}, overrides: {} };
 }
 
 /**
@@ -272,10 +277,14 @@ export function reqFor(site, w, skill) {
 /* Dedicated allocation                                                */
 /* ------------------------------------------------------------------ */
 
-/** A person's skills packed into one integer, one bit per SKILLS index. */
-export function skillMask(person) {
+/**
+ * A person's skills packed into one integer, one bit per column position.
+ * `index` maps skill id -> bit, from skillIndex() in constants.
+ */
+export function skillMask(person, index) {
   let m = 0;
-  for (const s of SKILLS) if (person.skills && person.skills[s]) m |= 1 << SKILL_INDEX[s];
+  if (!person.skills) return m;
+  for (const id in index) if (person.skills[id]) m |= 1 << index[id];
   return m;
 }
 
@@ -302,9 +311,8 @@ export function skillMask(person) {
  * Returns `filled[i]` (how many skill i actually got, never above demand) and
  * `owner[p]` (the skill index person p is committed to, or -1 if free).
  */
-export function allocateDay(masks, demand, count) {
+export function allocateDay(masks, demand, count, nSkills) {
   const n = count === undefined ? masks.length : count;
-  const nSkills = SKILLS.length;
   const owner = new Int8Array(n).fill(-1);
   const filled = new Array(nSkills).fill(0);
 
@@ -352,9 +360,9 @@ export function allocateDay(masks, demand, count) {
 /* Coverage                                                            */
 /* ------------------------------------------------------------------ */
 
-function blankDay() {
+function blankDay(ids) {
   const c = { _total: 0, _lift: 0, _flex: 0 };
-  for (const s of SKILLS) c[s] = 0;
+  for (const s of ids) c[s] = 0;
   return c;
 }
 
@@ -377,12 +385,17 @@ function blankDay() {
  * Both carry _total headcount and _lift per day; cov also carries _flex, the
  * people no hard requirement claimed.
  */
-export function computeCoverage(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE, site = null) {
+export function computeCoverage(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE, site = null, ids = []) {
+  // Bit position per skill id, built once for the whole sweep.
+  const index = {};
+  ids.forEach((id, i) => { index[id] = i; });
+  const nSkills = ids.length;
+
   const entries = people.map((p) => ({
     person: p,
     ...presenceGrid(p, numWeeks, maxOn),
-    skills: skillList(p),
-    mask: skillMask(p),
+    skills: skillList(p, ids),
+    mask: skillMask(p, index),
     lift: isLiftCertified(p),
   }));
 
@@ -391,11 +404,11 @@ export function computeCoverage(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIV
 
   for (let w = 0; w < numWeeks; w++) {
     // What this week demands in dedicated bodies, per skill index.
-    const demand = new Array(SKILLS.length).fill(0);
+    const demand = new Array(nSkills).fill(0);
     let anyHard = false;
     if (site) {
-      for (let i = 0; i < SKILLS.length; i++) {
-        const r = reqFor(site, w, SKILLS[i]);
+      for (let i = 0; i < nSkills; i++) {
+        const r = reqFor(site, w, ids[i]);
         if (r.hard && r.min > 0) {
           demand[i] = r.min;
           anyHard = true;
@@ -407,7 +420,7 @@ export function computeCoverage(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIV
     const rawDays = [];
 
     for (let d = 0; d < DAYS.length; d++) {
-      const rawC = blankDay();
+      const rawC = blankDay(ids);
       const masks = [];
       for (const e of entries) {
         if (!e.grid[w][d]) continue;
@@ -418,17 +431,17 @@ export function computeCoverage(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIV
       }
       rawC._flex = rawC._total;
 
-      const c = blankDay();
+      const c = blankDay(ids);
       c._total = rawC._total;
       c._lift = rawC._lift;
 
       if (!anyHard) {
-        for (const s of SKILLS) c[s] = rawC[s];
+        for (const s of ids) c[s] = rawC[s];
         c._flex = rawC._total;
       } else {
-        const { filled, owner } = allocateDay(masks, demand);
-        for (let i = 0; i < SKILLS.length; i++) {
-          if (demand[i]) c[SKILLS[i]] = filled[i];
+        const { filled, owner } = allocateDay(masks, demand, undefined, nSkills);
+        for (let i = 0; i < nSkills; i++) {
+          if (demand[i]) c[ids[i]] = filled[i];
         }
         // Everyone a hard requirement did not claim is still available to the
         // soft skills, and to each other — soft skills may share people.
@@ -436,9 +449,9 @@ export function computeCoverage(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIV
         for (let pi = 0; pi < masks.length; pi++) {
           if (owner[pi] !== -1) continue;
           flex++;
-          for (let i = 0; i < SKILLS.length; i++) {
+          for (let i = 0; i < nSkills; i++) {
             if (demand[i]) continue;
-            if (masks[pi] & (1 << i)) c[SKILLS[i]]++;
+            if (masks[pi] & (1 << i)) c[ids[i]]++;
           }
         }
         c._flex = flex;
@@ -478,11 +491,11 @@ export function weekAvg(cov, w, key) {
  * Every place the plan breaks. Shortfall is judged on the worst day of the
  * week, because "4 RCx per day" means every day, not the average.
  */
-export function findGaps(site, people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
-  const { cov, raw } = computeCoverage(people, numWeeks, maxOn, site);
+export function findGaps(site, people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE, ids = []) {
+  const { cov, raw } = computeCoverage(people, numWeeks, maxOn, site, ids);
   const gaps = [];
   for (let w = 0; w < numWeeks; w++) {
-    for (const s of SKILLS) {
+    for (const s of ids) {
       const r = reqFor(site, w, s);
       const lo = weekMin(cov, w, s);
       // Overstaffing is about bodies present, not jobs assigned, so it reads

@@ -1,12 +1,12 @@
 import React, { useState } from 'react';
 import {
-  SKILLS, DAYS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
-  TRAVEL_PROFILES, TIME_OFF_TYPES,
+  DAYS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
+  TRAVEL_PROFILES, TIME_OFF_TYPES, MAX_SKILLS, skillCodes, skillLabels,
 } from '../lib/constants.js';
 import { fmtWeekLong, isFullWeekOff, isTemporary, programWindow } from '../lib/schedule.js';
 import { newPerson } from '../lib/seed.js';
 
-function TimeOffEditor({ person, program, onChange, onClose }) {
+function TimeOffEditor({ person, program, onChange, onClose, skillCount }) {
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
   const [type, setType] = useState('Vacation');
@@ -33,7 +33,7 @@ function TimeOffEditor({ person, program, onChange, onClose }) {
 
   return (
     <tr>
-      <td colSpan={SKILLS.length + 11} style={{ background: 'var(--surface-2)', padding: '14px 16px' }}>
+      <td colSpan={skillCount + 11} style={{ background: 'var(--surface-2)', padding: '14px 16px' }}>
         <div className="row" style={{ marginBottom: 10 }}>
           <div className="field">
             <label>From week</label>
@@ -119,7 +119,14 @@ function TimeOffEditor({ person, program, onChange, onClose }) {
   );
 }
 
-export default function Roster({ site, sites, people, program, update, addMany, removeOne }) {
+export default function Roster({
+  site, sites, people, program, update, addMany, removeOne,
+  skills = [], addSkill, updateSkill, removeSkill, moveSkill,
+}) {
+  const ids = skills.map((x) => x.id);
+  const CODE = skillCodes(skills);
+  const LABEL = skillLabels(skills);
+  const [editCols, setEditCols] = useState(false);
   const weeks = Array.from({ length: program.numWeeks }, (_, i) => i);
   const [openTimeOff, setOpenTimeOff] = useState(null);
 
@@ -144,8 +151,117 @@ export default function Roster({ site, sites, people, program, update, addMany, 
               {people.filter((p) => p.employment === 'Traveler').length} traveler
             </p>
           </div>
+          <button
+            className={`btn ${editCols ? 'is-primary' : ''}`}
+            onClick={() => setEditCols((v) => !v)}
+          >
+            {editCols ? 'Done editing columns' : 'Edit columns'}
+          </button>
           <button className="btn is-primary" onClick={addPerson}>+ Add person</button>
         </div>
+
+        {editCols && (
+          <div className="card-body colsedit">
+            <p className="muted small" style={{ marginTop: 0 }}>
+              The short code is the column header; the name is the long form shown in
+              tooltips and on the Requirements tab. Renaming is safe — every tick and
+              target follows the column, because they are stored against a hidden id
+              rather than the name.
+            </p>
+            <table className="data">
+              <thead>
+                <tr>
+                  <th style={{ width: 40 }}>#</th>
+                  <th>Short code</th>
+                  <th>Name</th>
+                  <th className="is-center" style={{ width: 90 }}>Order</th>
+                  <th style={{ width: 80 }} />
+                </tr>
+              </thead>
+              <tbody>
+                {skills.map((sk, i) => (
+                  <tr key={sk.id}>
+                    <td className="muted small">{i + 1}</td>
+                    <td>
+                      <input
+                        className="input"
+                        style={{ width: 110 }}
+                        value={sk.code}
+                        placeholder="RCx"
+                        onChange={(e) => updateSkill(sk.id, { code: e.target.value })}
+                      />
+                    </td>
+                    <td>
+                      <input
+                        className="input"
+                        style={{ width: 190 }}
+                        value={sk.label}
+                        placeholder="Relay Cx"
+                        onChange={(e) => updateSkill(sk.id, { label: e.target.value })}
+                      />
+                    </td>
+                    <td className="is-center">
+                      <button
+                        className="btn is-sm is-ghost"
+                        disabled={i === 0}
+                        title="Move left"
+                        onClick={() => moveSkill(sk.id, -1)}
+                      >
+                        ↑
+                      </button>
+                      <button
+                        className="btn is-sm is-ghost"
+                        disabled={i === skills.length - 1}
+                        title="Move right"
+                        onClick={() => moveSkill(sk.id, 1)}
+                      >
+                        ↓
+                      </button>
+                    </td>
+                    <td>
+                      <button
+                        className="btn is-sm is-danger"
+                        onClick={() => {
+                          const n = people.filter((p) => p.skills && p.skills[sk.id]).length;
+                          const warn =
+                            `Remove the ${sk.code || sk.id} column?
+
+` +
+                            `Its per-site targets are deleted. ` +
+                            (n
+                              ? `${n} ${n === 1 ? 'person is' : 'people are'} ticked for it at this site; `
+                              : '') +
+                            `those ticks are kept, so re-adding the column would be a manual step ` +
+                            `but the people data is not thrown away.`;
+                          if (window.confirm(warn)) removeSkill(sk.id);
+                        }}
+                      >
+                        Remove
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button
+                className="btn is-primary"
+                onClick={addSkill}
+                disabled={skills.length >= MAX_SKILLS}
+                title={
+                  skills.length >= MAX_SKILLS
+                    ? `${MAX_SKILLS} columns is the maximum`
+                    : 'Add a skill column'
+                }
+              >
+                + Add column
+              </button>
+              <span className="muted small">
+                {skills.length} of {MAX_SKILLS} columns
+              </span>
+            </div>
+          </div>
+        )}
 
         <div className="card-body is-flush">
           {people.length === 0 ? (
@@ -163,8 +279,8 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                     <th>Role</th>
                     <th>Type</th>
                     <th>Lift</th>
-                    {SKILLS.map((s) => (
-                      <th key={s} className="is-center">{s}</th>
+                    {ids.map((s) => (
+                      <th key={s} className="is-center" title={LABEL[s]}>{CODE[s]}</th>
                     ))}
                     <th>Day off / travel</th>
                     <th className="is-center">Rotation</th>
@@ -227,9 +343,9 @@ export default function Roster({ site, sites, people, program, update, addMany, 
                           </select>
                         </td>
 
-                        {SKILLS.map((s) => (
+                        {ids.map((s) => (
                           <td key={s} className="is-center">
-                            <label className="skillbox" title={`${p.name || 'Person'} — ${s}`}>
+                            <label className="skillbox" title={`${p.name || 'Person'} — ${LABEL[s]}`}>
                               <input
                                 type="checkbox"
                                 checked={!!p.skills[s]}
@@ -419,6 +535,7 @@ export default function Roster({ site, sites, people, program, update, addMany, 
 
                       {openTimeOff === p.id && (
                         <TimeOffEditor
+                          skillCount={ids.length}
                           person={p}
                           program={program}
                           onChange={(timeOff) => set(p.id, { timeOff })}

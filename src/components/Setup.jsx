@@ -1,12 +1,14 @@
 import React, { useRef, useState } from 'react';
-import { SKILLS } from '../lib/constants.js';
+import { skillCodes } from '../lib/constants.js';
 import { buildPattern, fmtWeekLong, weekMin, computeCoverage } from '../lib/schedule.js';
 import { exportFile, exportCsv } from '../lib/storage.js';
 
 export default function Setup({
   state, setProgram, sites, updateSite, addSite, removeSite, replaceState, resetAll, notify,
-  canEdit = true,
+  canEdit = true, skills = [],
 }) {
+  const ids = skills.map((x) => x.id);
+  const CODE = skillCodes(skills);
   const fileRef = useRef(null);
   const [newSiteName, setNewSiteName] = useState('');
   const { program } = state;
@@ -30,7 +32,7 @@ export default function Setup({
   };
 
   const exportSchedule = () => {
-    const header = ['Site', 'Name', 'Role', 'Type', 'Lift', 'Long travel', 'Day off', ...SKILLS];
+    const header = ['Site', 'Name', 'Role', 'Type', 'Lift', 'Long travel', 'Day off', ...ids.map((x) => CODE[x] || x)];
     for (let w = 0; w < program.numWeeks; w++) header.push(`Wk${w + 1} ${fmtWeekLong(program.startDate, w)}`);
     const rows = [header];
 
@@ -43,7 +45,7 @@ export default function Setup({
           p.employment === 'Local' && p.localOffEvery
             ? `${p.localOffDay} every ${p.localOffEvery} wks`
             : p.employment === 'Local' ? 'None' : '',
-          ...SKILLS.map((s) => (p.skills[s] ? 'Y' : '')),
+          ...ids.map((s) => (p.skills[s] ? 'Y' : '')),
           ...pattern.map((st) => (st === 'ON' ? 'ON' : st === 'TIME_OFF' ? 'PTO' : 'HOME')),
         ]);
       }
@@ -52,10 +54,10 @@ export default function Setup({
     rows.push([]);
     for (const site of sites) {
       const sitePeople = state.people.filter((x) => x.siteId === site.id);
-      const { cov } = computeCoverage(sitePeople, program.numWeeks, program.maxConsecutive, site);
+      const { cov } = computeCoverage(sitePeople, program.numWeeks, program.maxConsecutive, site, ids);
       rows.push([`${site.name} — worst-day coverage`]);
       rows.push(['Skill', 'Target', 'Dedicated', ...Array.from({ length: program.numWeeks }, (_, w) => `Wk${w + 1}`)]);
-      for (const s of SKILLS) {
+      for (const s of ids) {
         const base = site.requirements.base[s].min;
         if (!base && !sitePeople.some((p) => p.skills[s])) continue;
         rows.push([

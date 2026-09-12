@@ -4,6 +4,7 @@ import {
   subscribeMembers, setMember, roleCanEdit, roleIsAdmin, ROLE_LABEL,
 } from './lib/storage.js';
 import { watchAuth, signIn, signOut, configPlaceholder, OWNER_EMAIL } from './lib/firebase.js';
+import { MAX_SKILLS } from './lib/constants.js';
 import { buildSeed, newSite as makeSite } from './lib/seed.js';
 import { findGaps } from './lib/schedule.js';
 import { autoBalance } from './lib/balancer.js';
@@ -155,6 +156,10 @@ export default function App() {
     [state.sites, siteId],
   );
 
+  // The editable column list, and the id array the engine works in.
+  const skills = useMemo(() => state.skills || [], [state.skills]);
+  const skillIdList = useMemo(() => skills.map((x) => x.id), [skills]);
+
   const sitePeople = useMemo(
     () => (site ? state.people.filter((p) => p.siteId === site.id) : []),
     [state.people, site],
@@ -206,6 +211,58 @@ export default function App() {
     setSiteId((cur) => (cur === id ? undefined : cur));
   }, []);
 
+  /* --- skill columns ----------------------------------------------------- */
+
+  const addSkill = useCallback(() => {
+    setState((s) => {
+      const list = s.skills || [];
+      if (list.length >= MAX_SKILLS) return s;
+      // The id is permanent and never shown, so it only has to be unique.
+      const id = `sk_${Date.now().toString(36)}_${list.length.toString(36)}`;
+      const n = list.length + 1;
+      return { ...s, skills: [...list, { id, code: `Skill ${n}`, label: `Skill ${n}` }] };
+    });
+  }, []);
+
+  const updateSkill = useCallback((id, patch) => {
+    setState((s) => ({
+      ...s,
+      skills: (s.skills || []).map((x) => (x.id === id ? { ...x, ...patch } : x)),
+    }));
+  }, []);
+
+  const removeSkill = useCallback((id) => {
+    setState((s) => ({
+      ...s,
+      skills: (s.skills || []).filter((x) => x.id !== id),
+      // Drop the targets, which mean nothing without the column. Leave each
+      // person's tick alone: it is one boolean, invisible while the column is
+      // gone, and it comes back intact if the column is re-added by id.
+      sites: s.sites.map((site) => {
+        const base = { ...(site.requirements?.base || {}) };
+        delete base[id];
+        const overrides = {};
+        for (const [w, bySkill] of Object.entries(site.requirements?.overrides || {})) {
+          const rest = { ...bySkill };
+          delete rest[id];
+          if (Object.keys(rest).length) overrides[w] = rest;
+        }
+        return { ...site, requirements: { ...site.requirements, base, overrides } };
+      }),
+    }));
+  }, []);
+
+  const moveSkill = useCallback((id, delta) => {
+    setState((s) => {
+      const list = [...(s.skills || [])];
+      const i = list.findIndex((x) => x.id === id);
+      const j = i + delta;
+      if (i < 0 || j < 0 || j >= list.length) return s;
+      [list[i], list[j]] = [list[j], list[i]];
+      return { ...s, skills: list };
+    });
+  }, []);
+
   const setProgram = useCallback((patch) => {
     setState((s) => ({ ...s, program: { ...s.program, ...patch } }));
   }, []);
@@ -231,7 +288,7 @@ export default function App() {
   const handleBalance = useCallback(() => {
     if (!site || sitePeople.length === 0 || !canEdit) return;
     const { numWeeks, maxConsecutive } = state.program;
-    const result = autoBalance(sitePeople, site, numWeeks, { maxOn: maxConsecutive });
+    const result = autoBalance(sitePeople, site, numWeeks, { maxOn: maxConsecutive, ids: skillIdList });
 
     const byId = new Map(result.people.map((p) => [p.id, p]));
     setState((s) => ({
@@ -239,14 +296,14 @@ export default function App() {
       people: s.people.map((p) => (byId.has(p.id) ? { ...p, ...byId.get(p.id) } : p)),
     }));
 
-    const { gaps } = findGaps(site, result.people, numWeeks, maxConsecutive);
+    const { gaps } = findGaps(site, result.people, numWeeks, maxConsecutive, skillIdList);
     setBalanceInfo({ changed: result.changed, gaps: gaps.length });
     notify(
       gaps.length === 0
         ? `${site.name} balanced — all targets met`
         : `${site.name} balanced — ${gaps.length} problem${gaps.length === 1 ? '' : 's'} left`,
     );
-  }, [site, sitePeople, state.program, notify]);
+  }, [site, sitePeople, state.program, skillIdList, notify]);
 
   // A fresh balance summary shouldn't linger after you change something else.
   useEffect(() => { setBalanceInfo(null); }, [siteId]);
@@ -261,11 +318,11 @@ export default function App() {
         out[s.id] = 'idle';
         continue;
       }
-      const { gaps } = findGaps(s, ppl, state.program.numWeeks, state.program.maxConsecutive);
+      const { gaps } = findGaps(s, ppl, state.program.numWeeks, state.program.maxConsecutive, skillIdList);
       out[s.id] = gaps.some((g) => g.type === 'short') ? 'alarm' : 'ok';
     }
     return out;
-  }, [state.sites, state.people, state.program]);
+  }, [state.sites, state.people, state.program, skillIdList]);
 
   /* --- gates ------------------------------------------------------------ */
 
@@ -422,6 +479,7 @@ export default function App() {
             site={site}
             people={sitePeople}
             program={state.program}
+            skills={skills}
             onBalance={handleBalance}
             canEdit={canEdit}
           />
@@ -436,6 +494,11 @@ export default function App() {
               update={updatePerson}
               addMany={addPeople}
               removeOne={removePerson}
+              skills={skills}
+              addSkill={addSkill}
+              updateSkill={updateSkill}
+              removeSkill={removeSkill}
+              moveSkill={moveSkill}
             />
           </fieldset>
         )}
@@ -453,7 +516,12 @@ export default function App() {
         )}
         {activeTab === 'Requirements' && (
           <fieldset className="ro-wrap" disabled={!canEdit}>
-            <Requirements site={site} program={state.program} updateSite={updateSite} />
+            <Requirements
+              site={site}
+              program={state.program}
+              updateSite={updateSite}
+              skills={skills}
+            />
           </fieldset>
         )}
         {activeTab === 'Setup' && (
@@ -467,6 +535,7 @@ export default function App() {
             replaceState={replaceState}
             resetAll={resetAll}
             notify={notify}
+            skills={skills}
             canEdit={canEdit}
           />
         )}

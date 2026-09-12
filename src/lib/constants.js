@@ -1,21 +1,57 @@
-// Skill columns tracked on every person. Add to this list and the whole app
-// (roster checkboxes, requirements grid, dashboard strips) picks it up.
-export const SKILLS = ['RCx', 'ECx', 'MCx', 'Quality', 'Injection', 'SCCAF', 'OFE', 'VTWeld'];
+/**
+ * The skill columns a fresh board starts with. They are only a starting
+ * point: the live list lives in the board state and is edited on the Roster
+ * tab, so it can be added to, renamed and reordered per program.
+ *
+ * `id` is the storage key and never changes — it is what person.skills and
+ * requirements.base are keyed by. `code` is the column header and `label`
+ * the long name, and both are freely editable. Keeping them apart is what
+ * lets a rename be a rename rather than a quiet data loss.
+ *
+ * The seeded ids match the names the columns had when they were hardcoded,
+ * so existing boards keep every tick and every target.
+ */
+export const DEFAULT_SKILLS = [
+  { id: 'RCx', code: 'RCx', label: 'Relay Cx' },
+  { id: 'ECx', code: 'ECx', label: 'Electrical Cx' },
+  { id: 'MCx', code: 'MCx', label: 'Mechanical Cx' },
+  { id: 'Quality', code: 'Quality', label: 'Quality' },
+  { id: 'Injection', code: 'Injection', label: 'Injection' },
+  { id: 'SCCAF', code: 'SCCAF', label: 'SCCAF' },
+  { id: 'OFE', code: 'OFE', label: 'OFE' },
+  { id: 'VTWeld', code: 'VT Weld', label: 'VT Weld' },
+];
 
-export const SKILL_LABELS = {
-  RCx: 'Relay Cx',
-  ECx: 'Electrical Cx',
-  MCx: 'Mechanical Cx',
-  Quality: 'Quality',
-  Injection: 'Injection',
-  SCCAF: 'SCCAF',
-  OFE: 'OFE',
-  VTWeld: 'VT Weld',
-};
+/**
+ * Skills are packed one-per-bit into a 32-bit integer for the dedicated
+ * allocation matching, so the column count has a hard ceiling. Stopping well
+ * short of 31 keeps that an abstract limit rather than a lurking bug.
+ */
+export const MAX_SKILLS = 24;
 
-// Position in SKILLS, used as the bit position when a person's skills are
-// packed into an integer for the dedicated-allocation matching.
-export const SKILL_INDEX = Object.fromEntries(SKILLS.map((s, i) => [s, i]));
+/** ['RCx', 'ECx', ...] — the storage keys, in display order. */
+export function skillIds(skills) {
+  return skills.map((s) => s.id);
+}
+
+/** Look-ups the render path would otherwise rebuild on every row. */
+export function skillIndex(skills) {
+  const out = {};
+  skills.forEach((s, i) => { out[s.id] = i; });
+  return out;
+}
+
+export function skillCodes(skills) {
+  const out = {};
+  for (const s of skills) out[s.id] = s.code || s.id;
+  return out;
+}
+
+export function skillLabels(skills) {
+  const out = {};
+  for (const s of skills) out[s.id] = s.label || s.code || s.id;
+  return out;
+}
 
 // Work week. Travelers are present all five days on an "on" week.
 // Locals drop one day every other week (their Mon or Fri).
