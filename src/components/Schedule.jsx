@@ -1,6 +1,9 @@
 import React from 'react';
 import { ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, FORCED_HOME, DAYS } from '../lib/constants.js';
-import { buildSchedule, fmtWeek, timeOffEntry, offDaysFor, isFullWeekOff, overworkedRuns } from '../lib/schedule.js';
+import {
+  buildSchedule, buildPattern, fmtWeek, timeOffEntry, offDaysFor, isFullWeekOff,
+  overworkedRuns, setWeekState,
+} from '../lib/schedule.js';
 
 export default function Schedule({ site, people, program, update, onBalance, balanceInfo }) {
   const { numWeeks, startDate, maxConsecutive } = program;

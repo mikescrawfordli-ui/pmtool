@@ -1,7 +1,17 @@
 import React, { useRef, useState } from 'react';
-import { skillCodes } from '../lib/constants.js';
+import { ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, FORCED_HOME, skillCodes } from '../lib/constants.js';
 import { buildPattern, fmtWeekLong, weekMin, computeCoverage } from '../lib/schedule.js';
 import { exportFile, exportCsv } from '../lib/storage.js';
+
+/* Weekly status as it reads in an exported schedule. Keyed off the constants
+   so a new status cannot quietly export as something it is not. */
+const WEEK_CSV = {
+  [ON]: 'ON',
+  [ROT_OFF]: 'HOME',
+  [FORCED_HOME]: 'HOME (pinned)',
+  [TIME_OFF]: 'PTO',
+  [OFF_PROGRAM]: '',
+};
 
 export default function Setup({
   state, setProgram, sites, updateSite, addSite, removeSite, replaceState, resetAll, notify,
@@ -46,7 +56,7 @@ export default function Setup({
             ? `${p.localOffDay} every ${p.localOffEvery} wks`
             : p.employment === 'Local' ? 'None' : '',
           ...ids.map((s) => (p.skills[s] ? 'Y' : '')),
-          ...pattern.map((st) => (st === 'ON' ? 'ON' : st === 'TIME_OFF' ? 'PTO' : 'HOME')),
+          ...pattern.map((st) => WEEK_CSV[st] || ''),
         ]);
       }
     }
