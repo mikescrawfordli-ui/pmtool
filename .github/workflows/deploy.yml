@@ -20,6 +20,9 @@ jobs:
 
       - run: npm ci
       - run: npm run build
+      # Rendering every tab catches what the build cannot: a component
+      # that compiles but throws the moment it is rendered.
+      - run: npm run smoke
 
       - uses: FirebaseExtended/action-hosting-deploy@v0
         with:
