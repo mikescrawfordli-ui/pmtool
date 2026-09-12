@@ -123,6 +123,9 @@ export function buildSeed() {
       startDate: '2026-09-07', // Monday of the first full week of September
       numWeeks: 16,
       maxConsecutive: 3,
+      // Slide the window forward as weeks pass, so the board always shows the
+      // next 16 weeks rather than a fixed stretch receding into the past.
+      rolling: true,
     },
     sites: [adc2, adc3, adc4],
     // The live column list. Editable on the Roster tab.

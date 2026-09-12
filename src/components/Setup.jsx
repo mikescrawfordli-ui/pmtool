@@ -151,6 +151,23 @@ export default function Setup({
               />
             </div>
           </div>
+          <label className="skillbox" style={{ marginTop: 12, gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={program.rolling !== false}
+              onChange={(e) => setProgram({ rolling: e.target.checked })}
+            />
+            <span className="skillbox-face" aria-hidden="true">✓</span>
+            <span>Keep the window on the current {program.numWeeks} weeks</span>
+          </label>
+          <p className="muted small" style={{ marginTop: 6, marginBottom: 0 }}>
+            With this on, the board slides forward as weeks pass: the week just
+            gone drops off the front and a new one appears at the end, so the
+            first column is always the current week. Anything booked in a week
+            that rolls off — time off, week-specific targets — goes with it, so
+            export a backup first if you want to keep the history.
+            {program.lastRolled && ` Last rolled ${program.lastRolled}.`}
+          </p>
           <p className="muted small" style={{ marginTop: 10, marginBottom: 0 }}>
             Travelers can never be scheduled past the consecutive-week limit.{' '}
             {program.numWeeks} weeks is about {Math.round((program.numWeeks / 4.345) * 10) / 10}{' '}

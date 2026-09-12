@@ -143,6 +143,96 @@ export function setWeekState(person, w, kind) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Rolling window                                                      */
+/* ------------------------------------------------------------------ */
+
+/** The Monday on or before a date, at local midnight. */
+export function mondayOf(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  // getDay(): 0 = Sunday. Monday is the start of the working week here.
+  const shift = (d.getDay() + 6) % 7;
+  d.setDate(d.getDate() - shift);
+  return d;
+}
+
+export function isoDate(d) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * Whole weeks between the program's first week and the week containing
+ * `today`. Zero while the program is still in its first week, negative if it
+ * has not started — the caller only ever rolls forward.
+ */
+export function weeksElapsed(startDate, today = new Date()) {
+  const from = mondayOf(new Date(`${startDate}T00:00:00`));
+  const to = mondayOf(today);
+  return Math.round((to - from) / (7 * 86400000));
+}
+
+/**
+ * Slide the whole plan forward by `k` weeks.
+ *
+ * Everything in the board is keyed by week index — time off, requirements
+ * overrides, on-site windows — so moving the start date without re-indexing
+ * would leave every booking pointing at a different calendar week than the
+ * one it was made for. Each index drops by k, and anything that falls off the
+ * front is dropped with it.
+ *
+ * Visitors are re-derived from their actual dates instead of shifted, so
+ * their arrival and departure stay on the days they were booked for.
+ *
+ * Applying this twice is the same as applying it once: after a roll the
+ * elapsed count is zero, so a second pass is a no-op. That matters because
+ * every crew member's browser runs it independently.
+ */
+export function rollProgram(state, k) {
+  if (!k || k <= 0) return state;
+
+  const start = new Date(`${state.program.startDate}T00:00:00`);
+  start.setDate(start.getDate() + k * 7);
+  const startDate = isoDate(start);
+  const numWeeks = state.program.numWeeks;
+
+  const shiftEntry = (t) => {
+    const end = t.end - k;
+    if (end < 0) return null; // wholly in the past
+    return { ...t, start: Math.max(0, t.start - k), end };
+  };
+
+  const people = state.people.map((p) => {
+    const timeOff = (p.timeOff || []).map(shiftEntry).filter(Boolean);
+
+    if (p.employment === 'Visitor' && (p.visitFrom || p.visitTo)) {
+      return { ...p, timeOff, ...visitPatch(startDate, numWeeks, p.visitFrom, p.visitTo) };
+    }
+
+    const startWeek = Math.max(0, (p.startWeek ?? 0) - k);
+    const endWeek = p.endWeek == null ? null : p.endWeek - k;
+    return { ...p, timeOff, startWeek, endWeek };
+  });
+
+  const sites = state.sites.map((site) => {
+    const src = site.requirements?.overrides || {};
+    const overrides = {};
+    for (const [week, bySkill] of Object.entries(src)) {
+      const w = Number(week) - k;
+      if (w >= 0) overrides[w] = bySkill;
+    }
+    return { ...site, requirements: { ...site.requirements, overrides } };
+  });
+
+  return {
+    ...state,
+    program: { ...state.program, startDate, lastRolled: isoDate(new Date()) },
+    people,
+    sites,
+  };
+}
+
+/* ------------------------------------------------------------------ */
 /* On-site window                                                      */
 /* ------------------------------------------------------------------ */
 

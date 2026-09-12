@@ -68,6 +68,7 @@ export function migrate(state) {
     startDate: '2026-09-07',
     numWeeks: 16,
     maxConsecutive: 3,
+    rolling: true,
     ...(state.program || {}),
   };
   // v4 moves the skill columns out of the code and into the board, so a

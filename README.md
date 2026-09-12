@@ -153,7 +153,25 @@ individual weeks as the project moves through phases. The bulk row sets a whole
 range at once.
 
 **Setup** — program start date and length, the consecutive-week cap, adding and
-renaming sites, and backup/export. Program length is in weeks with `+1 month` /
+renaming sites, and backup/export. Also the rolling-window switch.
+
+### The rolling window
+
+With **Keep the window on the current 16 weeks** on, the board slides forward
+as time passes: the week just gone drops off the front and a new one appears
+at the end, so the first column is always the current week. It happens on
+load, for anyone who can edit; it is idempotent, so several people opening the
+board at once converge rather than skipping weeks ahead.
+
+Everything in the board is stored by week index, so rolling re-indexes as it
+goes and a booking keeps the calendar week it was made for. Visitors are
+re-derived from their actual dates rather than shifted, so their arrival and
+departure days survive exactly.
+
+**Anything in a week that rolls off is dropped** — time off, week-specific
+targets. That is the point of a rolling window, but it is one-way, so take a
+backup from Setup first if the history matters. Turn the switch off to hold
+the board on a fixed stretch of weeks. Program length is in weeks with `+1 month` /
 `+3 months` / `+6 months` shortcuts, up to five years. Adding weeks never
 disturbs what is already planned.
 

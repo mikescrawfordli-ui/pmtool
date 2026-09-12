@@ -6,7 +6,7 @@ import {
 import { watchAuth, signIn, signOut, configPlaceholder, OWNER_EMAIL } from './lib/firebase.js';
 import { MAX_SKILLS } from './lib/constants.js';
 import { buildSeed, newSite as makeSite } from './lib/seed.js';
-import { findGaps } from './lib/schedule.js';
+import { findGaps, weeksElapsed, rollProgram } from './lib/schedule.js';
 import { autoBalance } from './lib/balancer.js';
 
 import Dashboard from './components/Dashboard.jsx';
@@ -210,6 +210,29 @@ export default function App() {
     // state this update produces rather than the one that was captured.
     setSiteId((cur) => (cur === id ? undefined : cur));
   }, []);
+
+  /**
+   * Keep the window on the current 16 weeks.
+   *
+   * Runs once the board is live and only for someone who can write it — a
+   * viewer must not try, and would be refused anyway. It is idempotent, so
+   * two people opening the board at the same time converge on the same
+   * result rather than rolling it twice.
+   */
+  useEffect(() => {
+    if (!canEdit || sync !== 'live') return;
+    if (state.program?.rolling === false) return;
+    const k = weeksElapsed(state.program.startDate);
+    if (k <= 0) return;
+    // Recompute inside the updater: a snapshot from another device may have
+    // landed since, and rolling a board that has already rolled would skip
+    // weeks rather than land on today.
+    setState((s) => {
+      const due = weeksElapsed(s.program.startDate);
+      return due > 0 ? rollProgram(s, due) : s;
+    });
+    notify(`Rolled forward ${k} week${k === 1 ? '' : 's'} to today`);
+  }, [canEdit, sync, state.program?.startDate, state.program?.rolling, notify]);
 
   /* --- skill columns ----------------------------------------------------- */
 

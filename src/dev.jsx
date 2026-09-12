@@ -15,9 +15,10 @@ import Dashboard from './components/Dashboard.jsx';
 import Roster from './components/Roster.jsx';
 import Schedule from './components/Schedule.jsx';
 import Requirements from './components/Requirements.jsx';
+import Setup from './components/Setup.jsx';
 import './styles.css';
 
-const TABS = ['Schedule', 'Roster', 'Dashboard', 'Requirements'];
+const TABS = ['Schedule', 'Roster', 'Dashboard', 'Requirements', 'Setup'];
 
 function Harness() {
   const [state, setState] = useState(() => {
@@ -75,6 +76,20 @@ function Harness() {
         {tab === 'Dashboard' && <Dashboard {...common} onBalance={noop} />}
         {tab === 'Requirements' && (
           <Requirements site={site} program={state.program} updateSite={updateSite} skills={state.skills} />
+        )}
+        {tab === 'Setup' && (
+          <Setup
+            state={state}
+            setProgram={(patch) => setState((s) => ({ ...s, program: { ...s.program, ...patch } }))}
+            sites={state.sites}
+            updateSite={updateSite}
+            addSite={noop}
+            removeSite={noop}
+            replaceState={noop}
+            resetAll={noop}
+            notify={noop}
+            skills={state.skills}
+          />
         )}
       </main>
     </div>
