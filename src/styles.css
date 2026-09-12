@@ -470,3 +470,16 @@ th.sticky-col { z-index: 3; background: var(--surface-2); }
   color: var(--blue-ink);
   font-weight: 600;
 }
+
+/* Week cells are selects now, so they must not look like form controls in a
+   grid this dense. The state colour comes from the same is-* classes the
+   buttons used. */
+.wk-sel {
+  appearance: none;
+  -webkit-appearance: none;
+  text-align: center;
+  text-align-last: center;
+  cursor: pointer;
+  width: 100%;
+}
+.wk-sel:disabled { cursor: default; }

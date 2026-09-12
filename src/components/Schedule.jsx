@@ -1,33 +1,6 @@
 import React from 'react';
-import { ON, TIME_OFF, OFF_PROGRAM, FORCED_HOME, DAYS } from '../lib/constants.js';
+import { ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, FORCED_HOME, DAYS } from '../lib/constants.js';
 import { buildSchedule, fmtWeek, timeOffEntry, offDaysFor, isFullWeekOff, overworkedRuns } from '../lib/schedule.js';
-
-/**
- * Clicking a week cycles it: on -> PTO -> home week -> on.
- *
- * The two middle states are not the same thing. PTO takes the person off site
- * but leaves the rotation exactly where it was, so their home weeks do not
- * move. A pinned home week restarts the run, which shifts everything after it
- * — that is the point of it, and it is how you short-cycle someone.
- */
-function cycleWeek(person, w) {
-  const list = person.timeOff || [];
-  // Day bookings are not week states and must survive a click on their week.
-  const hit = list.find((t) => w >= t.start && w <= t.end && isFullWeekOff(t));
-
-  if (!hit) return [...list, { start: w, end: w, type: 'Vacation', kind: 'pto' }];
-
-  const rest = list.filter((t) => t !== hit);
-  // Carve week w out of whatever range covers it, keeping the rest intact.
-  const remainder = [];
-  if (hit.start < w) remainder.push({ ...hit, end: w - 1 });
-  if (hit.end > w) remainder.push({ ...hit, start: w + 1 });
-
-  if (entryKind(hit) === 'pto') {
-    return [...rest, ...remainder, { ...hit, start: w, end: w, type: 'Home week', kind: 'home' }];
-  }
-  return [...rest, ...remainder]; // was a home week: clear it
-}
 
 export default function Schedule({ site, people, program, update, onBalance, balanceInfo }) {
   const { numWeeks, startDate, maxConsecutive } = program;
@@ -35,7 +8,15 @@ export default function Schedule({ site, people, program, update, onBalance, bal
 
   const rows = people.map((p) => {
     const { pattern, stintOf } = buildSchedule(p, numWeeks, maxConsecutive);
-    return { person: p, pattern, stintOf };
+    // What the rotation would say with no week pinned. That is what the
+    // "auto" choice resolves to, so the dropdown can name it rather than
+    // making the reader guess.
+    const auto = buildPattern(
+      { ...p, timeOff: (p.timeOff || []).filter((t) => !isFullWeekOff(t)) },
+      numWeeks,
+      maxConsecutive,
+    );
+    return { person: p, pattern, stintOf, auto };
   });
 
   const overworked = overworkedRuns(people, numWeeks, maxConsecutive);
@@ -97,7 +78,7 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ person, pattern, stintOf }) => (
+                {rows.map(({ person, pattern, stintOf, auto }) => (
                   <tr key={person.id}>
                     <td className="sticky-col" style={{ whiteSpace: 'nowrap' }}>
                       {person.name || <span className="muted">Unnamed</span>}
@@ -126,38 +107,59 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                         : st === ON ? 'is-on'
                         : st === TIME_OFF ? 'is-time'
                         : forced ? 'is-forced' : 'is-rot';
-                      const label = away
-                        ? '·'
-                        : st === ON ? 'ON' : st === TIME_OFF ? 'PTO' : 'HOME';
+
+                      if (away) {
+                        return (
+                          <td key={w} style={{ padding: '2px 2px' }}>
+                            <div className="wk is-away" title="Not on the program this week">·</div>
+                          </td>
+                        );
+                      }
+
+                      // What this week would be with nothing pinned.
+                      const autoOn = auto[w] === ON;
+                      const value = forced ? 'home' : st === TIME_OFF ? 'pto' : '';
+
+                      // A week the rotation already sends them home cannot
+                      // also be leave, and pinning home on it changes nothing.
+                      // Offer the choice only where it means something.
+                      if (!autoOn && !value) {
+                        return (
+                          <td key={w} style={{ padding: '2px 2px' }}>
+                            <div className="wk is-rot" title="Rotation home week">HOME</div>
+                          </td>
+                        );
+                      }
+
                       return (
                         <td key={w} style={{ padding: '2px 2px' }}>
-                          <button
-                            className={`wk ${cls}`}
-                            disabled={away}
+                          <select
+                            className={`wk wk-sel ${cls}`}
+                            value={value}
                             title={
-                              away
-                                ? 'Not on the program this week'
-                                : forced
-                                ? 'Pinned home week — the rotation restarts here. Click to clear.'
+                              forced
+                                ? 'Pinned home week — the rotation restarts here'
                                 : st === TIME_OFF
-                                ? `${entry?.type || 'Time off'} — leave, rotation unaffected. Click to pin a home week instead.`
-                                : st === ON
-                                  ? `On site ${DAYS.length - offList.length} of ${DAYS.length} days${
-                                      offList.length
-                                        ? `, away ${offList.map((d) => DAYS[d]).join(', ')}`
-                                        : ''
-                                    } — click to pin a home week`
-                                  : 'Rotation home week — click to pin as time off'
+                                ? `${entry?.type || 'Leave'} — off site, rotation unaffected`
+                                : `On site ${DAYS.length - offList.length} of ${DAYS.length} days${
+                                    offList.length
+                                      ? `, away ${offList.map((d) => DAYS[d]).join(', ')}`
+                                      : ''
+                                  }`
                             }
-                            onClick={() => update(person.id, { timeOff: cycleWeek(person, w) })}
+                            onChange={(e) =>
+                              update(person.id, { timeOff: setWeekState(person, w, e.target.value) })
+                            }
                           >
-                            <span>{label}</span>
-                            {offList.length > 0 && (
-                              <span className="wk-sub">
-                                −{offList.map((d) => DAYS[d]).join(',')}
-                              </span>
-                            )}
-                          </button>
+                            <option value="">{autoOn ? 'ON' : 'HOME'}</option>
+                            <option value="pto">PTO</option>
+                            <option value="home">HOME pin</option>
+                          </select>
+                          {offList.length > 0 && (
+                            <span className="wk-sub">
+                              −{offList.map((d) => DAYS[d]).join(',')}
+                            </span>
+                          )}
                         </td>
                       );
                     })}

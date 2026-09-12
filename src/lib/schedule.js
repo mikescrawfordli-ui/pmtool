@@ -102,6 +102,46 @@ export function partialOffMask(person, w) {
   return mask;
 }
 
+/**
+ * Set what one week is, explicitly: '' for whatever the rotation says, 'pto'
+ * for leave, or 'home' for a pinned home week.
+ *
+ * Cycling through these on click turned out to be a poor fit. A click on a
+ * week the rotation already sends someone home looked like it did nothing —
+ * the pattern checks the cap before it checks leave, so the cell kept saying
+ * HOME — and getting back to where you started meant guessing how many more
+ * clicks it would take. Naming the three states removes the guessing.
+ *
+ * PTO and a pinned home week are still very different things: leave leaves
+ * the rotation alone, a pinned home week restarts it.
+ */
+export function setWeekState(person, w, kind) {
+  const list = person.timeOff || [];
+  // Day bookings are not week states and must survive an edit to their week.
+  const hit = list.find((t) => w >= t.start && w <= t.end && isFullWeekOff(t));
+  const rest = hit ? list.filter((t) => t !== hit) : list;
+
+  // Carve week w out of whatever range covered it, keeping the rest intact.
+  const remainder = [];
+  if (hit) {
+    if (hit.start < w) remainder.push({ ...hit, end: w - 1 });
+    if (hit.end > w) remainder.push({ ...hit, start: w + 1 });
+  }
+
+  if (!kind) return [...rest, ...remainder];
+  return [
+    ...rest,
+    ...remainder,
+    {
+      ...(hit || {}),
+      start: w,
+      end: w,
+      type: kind === 'home' ? 'Home week' : 'Vacation',
+      kind,
+    },
+  ];
+}
+
 /* ------------------------------------------------------------------ */
 /* On-site window                                                      */
 /* ------------------------------------------------------------------ */
