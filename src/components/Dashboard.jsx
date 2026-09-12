@@ -151,6 +151,8 @@ export default function Dashboard({ site, people, program, skills = [], onBalanc
             <div className="stat-foot">
               {people.filter((p) => p.employment === 'Local').length} local ·{' '}
               {people.filter((p) => p.employment === 'Traveler').length} traveler
+              {people.some((p) => p.employment === 'Visitor') &&
+                ` · ${people.filter((p) => p.employment === 'Visitor').length} visitor`}
             </div>
           </div>
         </div>

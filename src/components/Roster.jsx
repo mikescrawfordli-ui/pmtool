@@ -3,7 +3,7 @@ import {
   DAYS, EMPLOYMENT, LIFT, LOCAL_OFF_DAYS, LOCAL_OFF_FREQUENCIES,
   TRAVEL_PROFILES, TIME_OFF_TYPES, MAX_SKILLS, skillCodes, skillLabels,
 } from '../lib/constants.js';
-import { fmtWeekLong, isFullWeekOff, isTemporary, programWindow } from '../lib/schedule.js';
+import { fmtWeekLong, isFullWeekOff, isTemporary, programWindow, visitPatch } from '../lib/schedule.js';
 import { newPerson } from '../lib/seed.js';
 
 function TimeOffEditor({ person, program, onChange, onClose, skillCount }) {
@@ -149,6 +149,8 @@ export default function Roster({
             <p className="card-sub">
               {people.length} people · {people.filter((p) => p.employment === 'Local').length} local ·{' '}
               {people.filter((p) => p.employment === 'Traveler').length} traveler
+              {people.some((p) => p.employment === 'Visitor') &&
+                ` · ${people.filter((p) => p.employment === 'Visitor').length} visitor`}
             </p>
           </div>
           <button
@@ -422,7 +424,7 @@ export default function Roster({
                         </td>
 
                         <td className="is-center">
-                          {p.employment === 'Traveler' ? (
+                          {p.employment !== 'Local' ? (
                             <select
                               className="select"
                               style={{ width: 66 }}
@@ -451,49 +453,81 @@ export default function Roster({
                         </td>
 
                         <td>
-                          {/* Short-term people are only crew for part of the
-                              program; blank "through" means no end date. */}
-                          <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
-                            <select
-                              className="select"
-                              style={{ width: 62 }}
-                              value={p.startWeek ?? 0}
-                              title="First week on site"
-                              onChange={(e) => {
-                                const from = +e.target.value;
-                                const to = p.endWeek;
-                                set(p.id, {
-                                  startWeek: from,
-                                  // Never leave a window that ends before it starts.
-                                  endWeek: to != null && to < from ? from : to,
-                                });
-                              }}
-                            >
-                              {weeks.map((w) => (
-                                <option key={w} value={w}>{w + 1}</option>
-                              ))}
-                            </select>
-                            <span className="muted small">to</span>
-                            <select
-                              className="select"
-                              style={{ width: 68 }}
-                              value={p.endWeek ?? ''}
-                              title="Last week on site — End means through the whole program"
-                              onChange={(e) =>
-                                set(p.id, { endWeek: e.target.value === '' ? null : +e.target.value })
-                              }
-                            >
-                              <option value="">End</option>
-                              {weeks
-                                .filter((w) => w >= (p.startWeek ?? 0))
-                                .map((w) => (
+                          {p.employment === 'Visitor' ? (
+                            /* A visit is booked by real dates. They resolve to
+                               a week and a weekday, so someone landing on the
+                               Wednesday is not counted on the Monday. */
+                            <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                              <input
+                                className="input"
+                                style={{ width: 130 }}
+                                type="date"
+                                value={p.visitFrom || ''}
+                                title="First day on site"
+                                onChange={(e) =>
+                                  set(p.id, visitPatch(
+                                    program.startDate, program.numWeeks,
+                                    e.target.value, p.visitTo,
+                                  ))
+                                }
+                              />
+                              <input
+                                className="input"
+                                style={{ width: 130 }}
+                                type="date"
+                                value={p.visitTo || ''}
+                                title="Last day on site"
+                                onChange={(e) =>
+                                  set(p.id, visitPatch(
+                                    program.startDate, program.numWeeks,
+                                    p.visitFrom, e.target.value,
+                                  ))
+                                }
+                              />
+                            </div>
+                          ) : (
+                            <div className="row" style={{ gap: 4, flexWrap: 'nowrap' }}>
+                              <select
+                                className="select"
+                                style={{ width: 62 }}
+                                value={p.startWeek ?? 0}
+                                title="First week on site"
+                                onChange={(e) => {
+                                  const from = +e.target.value;
+                                  const to = p.endWeek;
+                                  set(p.id, {
+                                    startWeek: from,
+                                    endWeek: to != null && to < from ? from : to,
+                                  });
+                                }}
+                              >
+                                {weeks.map((w) => (
                                   <option key={w} value={w}>{w + 1}</option>
                                 ))}
-                            </select>
-                          </div>
+                              </select>
+                              <span className="muted small">to</span>
+                              <select
+                                className="select"
+                                style={{ width: 68 }}
+                                value={p.endWeek ?? ''}
+                                title="Last week on site — End means the whole program"
+                                onChange={(e) =>
+                                  set(p.id, { endWeek: e.target.value === '' ? null : +e.target.value })
+                                }
+                              >
+                                <option value="">End</option>
+                                {weeks
+                                  .filter((w) => w >= (p.startWeek ?? 0))
+                                  .map((w) => (
+                                    <option key={w} value={w}>{w + 1}</option>
+                                  ))}
+                              </select>
+                            </div>
+                          )}
                           {isTemporary(p, program.numWeeks) && (
                             <span className="muted small">
-                              {programWindow(p, program.numWeeks).weeks} wk stint
+                              {programWindow(p, program.numWeeks).weeks} wk
+                              {p.employment === 'Visitor' ? ' visit' : ' stint'}
                             </span>
                           )}
                         </td>

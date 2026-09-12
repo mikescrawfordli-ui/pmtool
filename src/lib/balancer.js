@@ -19,7 +19,7 @@ const W_SPREAD = 2;
  * only moves the day-off around within it.
  */
 export function optionsFor(person, maxOn = DEFAULT_MAX_CONSECUTIVE) {
-  if (person.employment === 'Traveler') {
+  if (person.employment !== 'Local') {
     const opts = [];
     const phases = person.longTravel ? [0, 1] : [person.travelPhase ?? 0];
     for (let i = 0; i <= maxOn; i++) {

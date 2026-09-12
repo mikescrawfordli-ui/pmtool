@@ -1,4 +1,4 @@
-import { DAYS, ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
+import { DAYS, ON, ROT_OFF, TIME_OFF, OFF_PROGRAM, FORCED_HOME, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
 
 /* ------------------------------------------------------------------ */
 /* Dates                                                               */
@@ -40,6 +40,38 @@ export function fmtWeekLong(programStart, w) {
  */
 export function isFullWeekOff(entry) {
   return !entry.days || entry.days.length === 0 || entry.days.length >= DAYS.length;
+}
+
+/**
+ * Two kinds of week away, which the rotation treats very differently.
+ *
+ *   'home' — a home week pinned by hand. It resets the consecutive counter,
+ *            so everything after it shifts. This is how you short-cycle
+ *            someone.
+ *   'pto'  — leave. The person is off site, but the rotation carries on
+ *            around them, so their home weeks stay where they were.
+ *
+ * Older bookings have no kind and are read from their type, which is what the
+ * Schedule tab used to write.
+ */
+export function entryKind(entry) {
+  if (entry.kind === 'home' || entry.kind === 'pto') return entry.kind;
+  return entry.type === 'Home week' ? 'home' : 'pto';
+}
+
+function weekEntry(person, w, kind) {
+  for (const t of person.timeOff || []) {
+    if (w >= t.start && w <= t.end && isFullWeekOff(t) && entryKind(t) === kind) return t;
+  }
+  return null;
+}
+
+export function isForcedHome(person, w) {
+  return !!weekEntry(person, w, 'home');
+}
+
+export function isPtoWeek(person, w) {
+  return !!weekEntry(person, w, 'pto');
 }
 
 /** True only for whole-week absence — this is what drives the ON/TIME_OFF pattern. */
@@ -85,6 +117,80 @@ export function partialOffMask(person, w) {
  * Someone who leaves and comes back later is one window plus whole-week time
  * off over the gap, rather than a second window to keep track of.
  */
+/**
+ * Where a calendar date falls in the program, as {week, day} with day 0-4 for
+ * Mon-Fri. `mode` decides what to do with a weekend and with dates outside
+ * the program: an arrival rounds forward to the next working day, a departure
+ * rounds back to the previous one, and both clamp to the program's ends.
+ *
+ * Returns null for an empty or unparseable date.
+ */
+export function dateToSlot(programStart, iso, numWeeks, mode = 'arrive') {
+  if (!iso) return null;
+  const start = new Date(`${programStart}T00:00:00`);
+  const d = new Date(`${iso}T00:00:00`);
+  if (Number.isNaN(d.getTime()) || Number.isNaN(start.getTime())) return null;
+
+  const days = Math.round((d - start) / 86400000);
+  let week = Math.floor(days / 7);
+  let day = days - week * 7; // 0 = Mon ... 6 = Sun
+
+  if (day > DAYS.length - 1) {
+    // Landed on a weekend.
+    if (mode === 'arrive') { week += 1; day = 0; }
+    else day = DAYS.length - 1;
+  }
+  if (week < 0) { week = 0; day = 0; }
+  if (week > numWeeks - 1) { week = numWeeks - 1; day = DAYS.length - 1; }
+  return { week, day };
+}
+
+/** The ISO date of a given week and weekday in the program. */
+export function slotToDate(programStart, week, day = 0) {
+  const d = weekStart(programStart, week);
+  d.setDate(d.getDate() + day);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+/**
+ * The person fields a visit's date range resolves to. Kept as a single place
+ * so the Roster and any importer agree on the rounding.
+ */
+export function visitPatch(programStart, numWeeks, fromIso, toIso) {
+  const a = dateToSlot(programStart, fromIso, numWeeks, 'arrive');
+  const b = dateToSlot(programStart, toIso, numWeeks, 'depart');
+  const patch = { visitFrom: fromIso || null, visitTo: toIso || null };
+  if (a) { patch.startWeek = a.week; patch.startDay = a.day; }
+  else { patch.startWeek = 0; patch.startDay = null; }
+  if (b) { patch.endWeek = b.week; patch.endDay = b.day; }
+  else { patch.endWeek = null; patch.endDay = null; }
+  // A range that ends before it starts is not a range.
+  if (a && b && (b.week < a.week || (b.week === a.week && b.day < a.day))) {
+    patch.endWeek = a.week;
+    patch.endDay = a.day;
+    patch.visitTo = slotToDate(programStart, a.week, a.day);
+  }
+  return patch;
+}
+
+/**
+ * Day index a person's window opens or closes on, or -1 for a full week.
+ * A visitor who lands on the Wednesday is not crew on the Monday.
+ */
+export function windowOffMask(person, w) {
+  let mask = 0;
+  const sd = person.startDay;
+  const ed = person.endDay;
+  if (sd != null && w === (person.startWeek ?? 0)) {
+    for (let d = 0; d < sd; d++) mask |= 1 << d;
+  }
+  if (ed != null && person.endWeek != null && w === person.endWeek) {
+    for (let d = ed + 1; d < DAYS.length; d++) mask |= 1 << d;
+  }
+  return mask;
+}
+
 export function onProgram(person, w) {
   const from = person.startWeek ?? 0;
   const to = person.endWeek ?? Infinity;
@@ -126,7 +232,8 @@ export function buildPattern(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
   if (person.employment === 'Local') {
     for (let w = 0; w < numWeeks; w++) {
       if (!onProgram(person, w)) out.push(OFF_PROGRAM);
-      else out.push(isTimeOff(person, w) ? TIME_OFF : ON);
+      else if (isForcedHome(person, w)) out.push(FORCED_HOME);
+      else out.push(isPtoWeek(person, w) ? TIME_OFF : ON);
     }
     return out;
   }
@@ -139,12 +246,20 @@ export function buildPattern(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
       // Hold them at their opening offset so a short-term traveler starts
       // their rotation on arrival rather than partway through one.
       worked = opening;
-    } else if (isTimeOff(person, w)) {
-      out.push(TIME_OFF);
+    } else if (isForcedHome(person, w)) {
+      // A pinned home week is the one thing that deliberately shifts the
+      // rotation: the run restarts here.
+      out.push(FORCED_HOME);
       worked = 0;
     } else if (worked >= maxOn) {
       out.push(ROT_OFF);
       worked = 0;
+    } else if (isPtoWeek(person, w)) {
+      // Leave does not move the rotation. The counter advances as though the
+      // week had been worked, so their home weeks land exactly where they
+      // would have without the leave.
+      out.push(TIME_OFF);
+      worked++;
     } else {
       out.push(ON);
       worked++;
@@ -212,7 +327,7 @@ export function presenceGrid(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
   const grid = pattern.map((status, w) => {
     if (status !== ON) return DAYS.map(() => false);
     const offIdx = offDayIndex(person, w, stintOf);
-    const pto = partialOffMask(person, w);
+    const pto = partialOffMask(person, w) | windowOffMask(person, w);
     return DAYS.map((_, d) => d !== offIdx && !(pto & (1 << d)));
   });
   return { pattern, stintOf, grid };
@@ -222,7 +337,7 @@ export function presenceGrid(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
 export function offDaysFor(person, w, stintOf) {
   const out = [];
   const rota = offDayIndex(person, w, stintOf);
-  const pto = partialOffMask(person, w);
+  const pto = partialOffMask(person, w) | windowOffMask(person, w);
   for (let d = 0; d < DAYS.length; d++) {
     if (d === rota || pto & (1 << d)) out.push(d);
   }
@@ -517,7 +632,7 @@ export function findGaps(site, people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE
 export function overworkedRuns(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
   const flags = [];
   for (const p of people) {
-    if (p.employment !== 'Traveler') continue;
+    if (p.employment === 'Local') continue;
     const pattern = buildPattern(p, numWeeks, maxOn);
     let run = 0;
     let start = 0;

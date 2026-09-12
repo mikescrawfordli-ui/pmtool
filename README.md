@@ -131,7 +131,18 @@ with the Site dropdown. Book time off with the Time off button — pick no days
 for a whole week, or pick weekdays for single-day PTO. Days apply to every week
 in the range, so "every Monday in October" is one booking. The Day off /
 travel column holds each local's day-off cycle and each traveler's Long travel
-setting.
+setting. **Edit columns** opens the skill-column editor — add, rename, reorder
+or remove columns; renaming is safe because ticks and targets are stored
+against a hidden id, not the name.
+
+Three employment types. **Local** works every week and takes a recurring day
+off. **Traveler** runs the rotation. **Visitor** also runs the rotation but is
+booked by real dates rather than week numbers — for a specialist in for a week
+or a month. A visit that starts on a Wednesday doesn't count the Monday, and a
+weekend date rounds inward to the nearest working day.
+
+The **On site** column bounds anyone's engagement. Weeks outside it show as a
+hatched dot on the Schedule: not a home week, not crew at all.
 
 **Schedule** — the week grid. Click any week to pin it as a home week; click
 again to release it. Auto-balance is here too.
@@ -159,9 +170,26 @@ consecutive weeks worked. Two things fall out of that:
 
 - **Nobody can ever be scheduled past the cap.** It isn't a warning, it's
   structural. Verified against several hundred randomized vacation patterns.
-- **Vacation resets the count.** Someone back from two weeks off gets a full
-  fresh three-week run instead of an almost-immediate home week, so you don't
-  lose their time twice.
+- **Leave does not move the rotation.** A week of PTO takes someone off site,
+  but the counter carries on around it, so their home weeks land exactly where
+  they would have. Booking a Friday off shouldn't reshuffle the next two
+  months.
+- **A pinned home week does move it.** That is the one deliberate lever: it
+  restarts the run, shifting everything after it, which is how you short-cycle
+  someone who needs to be home earlier than the pattern says.
+
+### Clicking a week on the Schedule
+
+Each week cycles through three states:
+
+| Click | State | Rotation |
+|---|---|---|
+| 1st | **PTO** — off site, on leave | unchanged |
+| 2nd | **HOME** — pinned home week | restarts here, everything after shifts |
+| 3rd | back to ON | unchanged |
+
+Day-level bookings (a single Friday) are separate and survive a click on the
+week around them; use the Time off button on the Roster for those.
 
 ### Travel days
 

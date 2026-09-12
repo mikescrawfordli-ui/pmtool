@@ -1,24 +1,32 @@
 import React from 'react';
-import { ON, TIME_OFF, OFF_PROGRAM, DAYS } from '../lib/constants.js';
+import { ON, TIME_OFF, OFF_PROGRAM, FORCED_HOME, DAYS } from '../lib/constants.js';
 import { buildSchedule, fmtWeek, timeOffEntry, offDaysFor, isFullWeekOff, overworkedRuns } from '../lib/schedule.js';
 
-/** Click a week to pin it as a home week; click again to release it. */
-function toggleWeek(person, w) {
+/**
+ * Clicking a week cycles it: on -> PTO -> home week -> on.
+ *
+ * The two middle states are not the same thing. PTO takes the person off site
+ * but leaves the rotation exactly where it was, so their home weeks do not
+ * move. A pinned home week restarts the run, which shifts everything after it
+ * — that is the point of it, and it is how you short-cycle someone.
+ */
+function cycleWeek(person, w) {
   const list = person.timeOff || [];
-  // Only whole-week bookings are pinnable here; a Friday of PTO is not a home
-  // week and must survive a click meant for the week around it.
+  // Day bookings are not week states and must survive a click on their week.
   const hit = list.find((t) => w >= t.start && w <= t.end && isFullWeekOff(t));
 
-  if (!hit) {
-    return [...list, { start: w, end: w, type: 'Home week' }];
-  }
+  if (!hit) return [...list, { start: w, end: w, type: 'Vacation', kind: 'pto' }];
 
-  // Carve the clicked week back out of whatever range covers it.
   const rest = list.filter((t) => t !== hit);
-  if (hit.start === w && hit.end === w) return rest;
-  if (hit.start === w) return [...rest, { ...hit, start: w + 1 }];
-  if (hit.end === w) return [...rest, { ...hit, end: w - 1 }];
-  return [...rest, { ...hit, end: w - 1 }, { ...hit, start: w + 1 }];
+  // Carve week w out of whatever range covers it, keeping the rest intact.
+  const remainder = [];
+  if (hit.start < w) remainder.push({ ...hit, end: w - 1 });
+  if (hit.end > w) remainder.push({ ...hit, start: w + 1 });
+
+  if (entryKind(hit) === 'pto') {
+    return [...rest, ...remainder, { ...hit, start: w, end: w, type: 'Home week', kind: 'home' }];
+  }
+  return [...rest, ...remainder]; // was a home week: clear it
 }
 
 export default function Schedule({ site, people, program, update, onBalance, balanceInfo }) {
@@ -99,7 +107,11 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                     </td>
                     <td>
                       <span className={`chip ${person.employment === 'Local' ? 'is-local' : 'is-traveler'}`}>
-                        {person.employment === 'Local' ? 'Local' : person.longTravel ? '✈ Trav' : 'Trav'}
+                        {person.employment === 'Local'
+                          ? 'Local'
+                          : person.employment === 'Visitor'
+                          ? 'Visit'
+                          : person.longTravel ? '✈ Trav' : 'Trav'}
                       </span>
                     </td>
                     {weeks.map((w) => {
@@ -108,9 +120,12 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                       // Rotation/travel day and any booked PTO days, together.
                       const offList = st === ON ? offDaysFor(person, w, stintOf) : [];
                       const away = st === OFF_PROGRAM;
+                      const forced = st === FORCED_HOME;
                       const cls = away
                         ? 'is-away'
-                        : st === ON ? 'is-on' : st === TIME_OFF ? 'is-time' : 'is-rot';
+                        : st === ON ? 'is-on'
+                        : st === TIME_OFF ? 'is-time'
+                        : forced ? 'is-forced' : 'is-rot';
                       const label = away
                         ? '·'
                         : st === ON ? 'ON' : st === TIME_OFF ? 'PTO' : 'HOME';
@@ -122,8 +137,10 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                             title={
                               away
                                 ? 'Not on the program this week'
+                                : forced
+                                ? 'Pinned home week — the rotation restarts here. Click to clear.'
                                 : st === TIME_OFF
-                                ? `${entry?.type || 'Time off'} — click to release`
+                                ? `${entry?.type || 'Time off'} — leave, rotation unaffected. Click to pin a home week instead.`
                                 : st === ON
                                   ? `On site ${DAYS.length - offList.length} of ${DAYS.length} days${
                                       offList.length
@@ -132,7 +149,7 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                                     } — click to pin a home week`
                                   : 'Rotation home week — click to pin as time off'
                             }
-                            onClick={() => update(person.id, { timeOff: toggleWeek(person, w) })}
+                            onClick={() => update(person.id, { timeOff: cycleWeek(person, w) })}
                           >
                             <span>{label}</span>
                             {offList.length > 0 && (

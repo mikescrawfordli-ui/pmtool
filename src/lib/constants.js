@@ -65,8 +65,22 @@ export const TIME_OFF = 'TIME_OFF'; // vacation / PTO / pinned home week
 // home week: a rotation gap means they come back, this means they are not
 // part of the crew that week at all.
 export const OFF_PROGRAM = 'OFF_PROGRAM';
+// A home week pinned by hand. Unlike PTO it resets the rotation counter, which
+// is how you short-cycle someone and shift everything after them.
+export const FORCED_HOME = 'FORCED_HOME';
 
-export const EMPLOYMENT = ['Traveler', 'Local'];
+/**
+ * Traveler and Visitor both run the rotation; Local does not. Visitor is a
+ * short, dated engagement — a specialist in for a week or a month — and the
+ * only structural difference is that their window is entered as real dates.
+ * Every rotation branch keys off `!== 'Local'` so a Visitor never silently
+ * picks up a local's day-off behaviour.
+ */
+export const EMPLOYMENT = ['Traveler', 'Local', 'Visitor'];
+
+export function runsRotation(person) {
+  return person.employment !== 'Local';
+}
 export const LIFT = [
   { value: 'X', label: 'Certified' },
   { value: 'P', label: 'Pending' },

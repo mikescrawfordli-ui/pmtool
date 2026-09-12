@@ -461,3 +461,12 @@ th.sticky-col { z-index: 3; background: var(--surface-2); }
 }
 .colsedit table { width: auto; }
 .colsedit td { vertical-align: middle; }
+
+/* A home week pinned by hand. Louder than a rotation home week, because it
+   is a deliberate short-cycle that shifts everything after it. */
+.wk.is-forced {
+  background: var(--blue-soft);
+  border-color: var(--blue);
+  color: var(--blue-ink);
+  font-weight: 600;
+}
