@@ -11,15 +11,7 @@ export default function Schedule({ site, people, program, update, onBalance, bal
 
   const rows = people.map((p) => {
     const { pattern, stintOf } = buildSchedule(p, numWeeks, maxConsecutive);
-    // What the rotation would say with no week pinned. That is what the
-    // "auto" choice resolves to, so the dropdown can name it rather than
-    // making the reader guess.
-    const auto = buildPattern(
-      { ...p, timeOff: (p.timeOff || []).filter((t) => !isFullWeekOff(t)) },
-      numWeeks,
-      maxConsecutive,
-    );
-    return { person: p, pattern, stintOf, auto };
+    return { person: p, pattern, stintOf };
   });
 
   const overworked = overworkedRuns(people, numWeeks, maxConsecutive);
@@ -81,7 +73,7 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                 </tr>
               </thead>
               <tbody>
-                {rows.map(({ person, pattern, stintOf, auto }) => (
+                {rows.map(({ person, pattern, stintOf }) => (
                   <tr key={person.id}>
                     <td className="sticky-col" style={{ whiteSpace: 'nowrap' }}>
                       {person.name || <span className="muted">Unnamed</span>}
@@ -119,20 +111,37 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                         );
                       }
 
-                      // What this week would be with nothing pinned.
-                      const autoOn = auto[w] === ON;
-                      const value = forced ? 'home' : st === TIME_OFF ? 'pto' : '';
-
-                      // A week the rotation already sends them home cannot
-                      // also be leave, and pinning home on it changes nothing.
-                      // Offer the choice only where it means something.
-                      if (!autoOn && !value) {
+                      // A rotation home week is not a choice — there is
+                      // nothing to pick. Leave from a week you are already
+                      // home means nothing, and pinning home on one changes
+                      // nothing either.
+                      if (st === ROT_OFF) {
                         return (
                           <td key={w} style={{ padding: '2px 2px' }}>
                             <div className="wk is-rot" title="Rotation home week">HOME</div>
                           </td>
                         );
                       }
+
+                      const value = forced ? 'home' : st === TIME_OFF ? 'pto' : '';
+
+                      // What this week becomes if the pin is cleared. Only
+                      // this week's booking is dropped — using the pattern
+                      // with every pin removed would describe a schedule the
+                      // reader is not looking at.
+                      const cleared = value
+                        ? buildPattern(
+                            {
+                              ...person,
+                              timeOff: (person.timeOff || []).filter(
+                                (t) => !(w >= t.start && w <= t.end && isFullWeekOff(t)),
+                              ),
+                            },
+                            numWeeks,
+                            maxConsecutive,
+                          )[w]
+                        : st;
+                      const clearedOn = cleared === ON;
 
                       return (
                         <td key={w} style={{ padding: '2px 2px' }}>
@@ -154,8 +163,8 @@ export default function Schedule({ site, people, program, update, onBalance, bal
                               update(person.id, { timeOff: setWeekState(person, w, e.target.value) })
                             }
                           >
-                            <option value="">{autoOn ? 'ON' : 'HOME'}</option>
-                            <option value="pto">PTO</option>
+                            <option value="">{clearedOn ? 'ON' : 'HOME'}</option>
+                            {clearedOn && <option value="pto">PTO</option>}
                             <option value="home">HOME pin</option>
                           </select>
                           {offList.length > 0 && (
