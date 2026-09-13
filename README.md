@@ -230,6 +230,23 @@ instead of two short weekends. The dropdown next to the checkbox picks which
 profile their **first** rotation uses; it alternates automatically after that,
 and auto-balance will pick the phase that covers best unless you Lock them.
 
+### Working the whole engagement
+
+Tick **∞** on the Roster for anyone who should not rotate home. A four-week
+visitor on a three-week cap would otherwise take a home week in their final
+week, which is rarely what a short fixed engagement means.
+
+The cap still protects everyone it is left on — this is a per-person
+exemption from it, not a hole in it. PTO and pinned home weeks still apply to
+someone exempt; only the automatic rotation home week goes away. Their
+rotation offset disappears from the Roster, because there is no longer a
+rotation to offset, and auto-balance stops trying to move them. Bench depth
+counts them as always present, which is the point of them.
+
+One consequence for long travel: alternating travel profiles is tied to
+rotations, so with no home week there is only one stint and the profile you
+pick applies for the whole engagement rather than alternating.
+
 ### Locals' days off
 
 Locals work every week and take one Monday or Friday off on a recurring cycle.

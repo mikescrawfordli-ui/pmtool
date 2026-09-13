@@ -321,6 +321,22 @@ export function windowOffMask(person, w) {
   return mask;
 }
 
+/**
+ * Someone who stays for the whole of their engagement rather than rotating
+ * home partway through it.
+ *
+ * A four-week visitor on a three-week cap would otherwise take a home week in
+ * their final week, which is rarely what a short fixed engagement means. The
+ * cap still protects everyone it is left on; this is a deliberate, per-person
+ * exemption from it, not a hole in it.
+ *
+ * Locals already work every week, so the flag only means anything for a
+ * Traveler or a Visitor.
+ */
+export function worksEveryWeek(person) {
+  return person.employment !== 'Local' && !!person.worksEveryWeek;
+}
+
 export function onProgram(person, w) {
   const from = person.startWeek ?? 0;
   const to = person.endWeek ?? Infinity;
@@ -368,6 +384,7 @@ export function buildPattern(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
     return out;
   }
 
+  const everyWeek = worksEveryWeek(person);
   const opening = Math.max(0, Math.min(person.rotationStart || 0, maxOn));
   let worked = opening;
   for (let w = 0; w < numWeeks; w++) {
@@ -381,7 +398,7 @@ export function buildPattern(person, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) 
       // rotation: the run restarts here.
       out.push(FORCED_HOME);
       worked = 0;
-    } else if (worked >= maxOn) {
+    } else if (!everyWeek && worked >= maxOn) {
       out.push(ROT_OFF);
       worked = 0;
     } else if (isPtoWeek(person, w)) {
@@ -762,7 +779,7 @@ export function findGaps(site, people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE
 export function overworkedRuns(people, numWeeks, maxOn = DEFAULT_MAX_CONSECUTIVE) {
   const flags = [];
   for (const p of people) {
-    if (p.employment === 'Local') continue;
+    if (p.employment === 'Local' || worksEveryWeek(p)) continue;
     const pattern = buildPattern(p, numWeeks, maxOn);
     let run = 0;
     let start = 0;

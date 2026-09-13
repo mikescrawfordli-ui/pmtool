@@ -121,6 +121,7 @@ export function migrate(state) {
 
     if (p.longTravel == null) p.longTravel = false;
     if (p.travelPhase == null) p.travelPhase = 0;
+    if (p.worksEveryWeek == null) p.worksEveryWeek = false;
   }
   return state;
 }

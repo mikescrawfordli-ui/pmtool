@@ -406,16 +406,34 @@ export default function Roster({
                                 />
                                 <span className="skillbox-face" aria-hidden="true">✈</span>
                               </label>
+                              <label
+                                className="skillbox"
+                                style={{ width: 'auto' }}
+                                title="Stays for the whole engagement — never takes a rotation home week"
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={!!p.worksEveryWeek}
+                                  onChange={(e) => set(p.id, { worksEveryWeek: e.target.checked })}
+                                />
+                                <span className="skillbox-face" aria-hidden="true">∞</span>
+                              </label>
                               {p.longTravel && (
                                 <select
                                   className="select"
                                   style={{ width: 148 }}
                                   value={p.travelPhase ?? 0}
                                   onChange={(e) => set(p.id, { travelPhase: +e.target.value })}
-                                  title="Travel profile for their first rotation — it alternates after that"
+                                  title={
+                                    p.worksEveryWeek
+                                      ? 'Travel profile for the whole engagement — with no home week there is nothing to alternate between'
+                                      : 'Travel profile for their first rotation — it alternates after that'
+                                  }
                                 >
                                   {TRAVEL_PROFILES.map((t) => (
-                                    <option key={t.value} value={t.value}>1st: {t.label}</option>
+                                    <option key={t.value} value={t.value}>
+                                      {p.worksEveryWeek ? '' : '1st: '}{t.label}
+                                    </option>
                                   ))}
                                 </select>
                               )}
@@ -424,7 +442,7 @@ export default function Roster({
                         </td>
 
                         <td className="is-center">
-                          {p.employment !== 'Local' ? (
+                          {p.employment !== 'Local' && !p.worksEveryWeek ? (
                             <select
                               className="select"
                               style={{ width: 66 }}

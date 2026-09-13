@@ -40,6 +40,8 @@ function person(name, role, employment, lift, skills, extra = {}) {
     // Travelers: standard Sunday-in / Friday-night-out, on site all five days.
     longTravel: false,
     travelPhase: 0,
+    // Rotate home on the cap like everyone else unless told otherwise.
+    worksEveryWeek: false,
     timeOff: [],
     locked: false,
     notes: '',

@@ -1,5 +1,5 @@
 import { DAYS, DEFAULT_MAX_CONSECUTIVE } from './constants.js';
-import { presenceGrid, isLiftCertified, reqFor, skillMask, allocateDay, onProgram } from './schedule.js';
+import { presenceGrid, isLiftCertified, reqFor, skillMask, allocateDay, onProgram, worksEveryWeek } from './schedule.js';
 
 /* Weights: a missing body is worth far more than an extra one, and both
    outweigh cosmetic week-to-week smoothing. */
@@ -20,8 +20,17 @@ const W_SPREAD = 2;
  */
 export function optionsFor(person, maxOn = DEFAULT_MAX_CONSECUTIVE) {
   if (person.employment !== 'Local') {
-    const opts = [];
     const phases = person.longTravel ? [0, 1] : [person.travelPhase ?? 0];
+
+    // Someone who never rotates home has no rotation slot to move. Their
+    // travel profile still matters though: with no home week there is only
+    // one stint, so the phase decides whether they lose Mondays or Fridays
+    // for the whole engagement rather than alternating.
+    if (worksEveryWeek(person)) {
+      return phases.map((ph) => ({ rotationStart: person.rotationStart ?? 0, travelPhase: ph }));
+    }
+
+    const opts = [];
     for (let i = 0; i <= maxOn; i++) {
       for (const ph of phases) opts.push({ rotationStart: i, travelPhase: ph });
     }
@@ -365,6 +374,10 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
   const floorOf = (withSkill) => {
     const locals = withSkill.filter((p) => p.employment === 'Local');
     const travelers = withSkill.filter((p) => p.employment !== 'Local');
+    // Travelers who never rotate home are always here, so they must not be
+    // counted into the "someone is always away" arithmetic below.
+    const rotating = travelers.filter((p) => !worksEveryWeek(p));
+    const constant = travelers.filter((p) => worksEveryWeek(p));
 
     // Locals out on the worst day, grouped by how often they take a day off.
     const byFreq = new Map();
@@ -376,11 +389,14 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
     let localsOut = 0;
     for (const [f, n] of byFreq) localsOut += Math.ceil(n / (2 * f));
 
-    const travelersHome = travelers.length === 0 ? 0 : Math.ceil(travelers.length / slots);
+    const travelersHome = rotating.length === 0 ? 0 : Math.ceil(rotating.length / slots);
 
-    const longTravel = travelers.filter((p) => p.longTravel).length;
-    const longTravelOnSite = Math.max(0, longTravel - Math.ceil(longTravel / slots));
-    const travelDaysOut = Math.ceil(longTravelOnSite / 2);
+    // Long travel costs a day on site. Among rotators, the ones who are home
+    // that week cost nothing extra; those who never go home always cost it.
+    const ltRotating = rotating.filter((p) => p.longTravel).length;
+    const ltRotatingOnSite = Math.max(0, ltRotating - Math.ceil(ltRotating / slots));
+    const ltConstant = constant.filter((p) => p.longTravel).length;
+    const travelDaysOut = Math.ceil((ltRotatingOnSite + ltConstant) / 2);
 
     return {
       headcount: withSkill.length,
@@ -389,7 +405,11 @@ export function capacityCheck(people, site, numWeeks, maxOn = DEFAULT_MAX_CONSEC
       localsOut,
       travelersHome,
       travelDaysOut,
-      floor: locals.length - localsOut + (travelers.length - travelersHome) - travelDaysOut,
+      floor:
+        locals.length - localsOut +
+        (rotating.length - travelersHome) +
+        constant.length -
+        travelDaysOut,
     };
   };
 
